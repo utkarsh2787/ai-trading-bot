@@ -340,7 +340,27 @@ class RefBuilder:
         self._write(new, f"{MANUAL_DIR}/special_sessions_draft.csv")
         confirmed = new.filter(~pl.col("needs_review") & (pl.col("proposed_action") == "exclude"))
         self._write(confirmed.select("date", "session_type"), self.cfg.reference.special_sessions)
+        self._from_manual(
+            "calendar_exceptions_manual.csv",
+            ["date", "reason"],
+            self.cfg.reference.calendar_exceptions,
+        )
+        self._from_manual("budget_days_manual.csv", ["date"], self.cfg.reference.budget_days)
         return new
+
+    def _from_manual(self, name: str, cols: list[str], target: str) -> pl.DataFrame | None:
+        """Reviewed rows (needs_review=false) of manual/<name> -> reference file."""
+        src = self.root / MANUAL_DIR / name
+        if not src.exists():
+            return None
+        m = pl.read_csv(src, infer_schema_length=0)
+        ok = m.filter(m["needs_review"].str.strip_chars().str.to_lowercase() == "false")
+        pending = m.height - ok.height
+        if pending:
+            log.warning("%s: %d row(s) still need review (not applied)", name, pending)
+        out = ok.select(cols)
+        self._write(out, target)
+        return out
 
     # ------------------------------------------------------- expiries/results
     def expiries(self, start: date, end: date) -> pl.DataFrame:

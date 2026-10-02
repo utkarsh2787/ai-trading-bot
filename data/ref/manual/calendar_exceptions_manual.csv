@@ -1,0 +1,3 @@
+date,reason,source,needs_review,note
+2017-07-10,NSE technical outage (trading halted for several hours),"bhavcopy: market turnover 26% of the +-10-session median (special_sessions_draft); confirmed as an outage by the user",false,moved from special_sessions_draft.csv
+2021-02-24,NSE technical outage (trading halted; session extended),user list,true,"verify against 1-min data after the Kite download: expect a mid-session gap and candles after 15:30"

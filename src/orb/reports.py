@@ -18,7 +18,7 @@ Outputs (``<run>/report/``):
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -152,6 +152,7 @@ class RegimeTags:
     trend: pl.DataFrame  # date, trend_day
     expiry: pl.DataFrame  # date, is_expiry, is_<type>...
     results: pl.DataFrame  # symbol, date (results_day stock-days)
+    budget: pl.DataFrame = field(default_factory=lambda: pl.DataFrame(schema={"date": pl.Date}))
 
 
 def regime_tables(trades: pl.DataFrame, tags: RegimeTags) -> dict[str, pl.DataFrame]:
@@ -161,6 +162,11 @@ def regime_tables(trades: pl.DataFrame, tags: RegimeTags) -> dict[str, pl.DataFr
     t = t.join(
         tags.results.select("symbol", "date").with_columns(results_day=pl.lit(True)),
         on=["symbol", "date"],
+        how="left",
+    )
+    t = t.join(
+        tags.budget.select("date").unique().with_columns(budget_day=pl.lit(True)),
+        on="date",
         how="left",
     )
     exp_cols = [c for c in tags.expiry.columns if c.startswith("is_")]
@@ -173,11 +179,13 @@ def regime_tables(trades: pl.DataFrame, tags: RegimeTags) -> dict[str, pl.DataFr
         .then(pl.lit("trend"))
         .otherwise(pl.lit("range")),
         results_day=pl.col("results_day").fill_null(False),
+        budget_day=pl.col("budget_day").fill_null(False),
     )
     out = {
         "vix_tercile": _stats(t, ["vix_tercile"]).sort("vix_tercile"),
         "trend_vs_range": _stats(t, ["day_type"]).sort("day_type"),
         "results_day": _stats(t, ["results_day"]).sort("results_day"),
+        "budget_day": _stats(t, ["budget_day"]).sort("budget_day"),
     }
     for c in exp_cols:
         out[c.removeprefix("is_")] = _stats(t, [c]).sort(c)
@@ -534,4 +542,5 @@ def tags_from_disk(cfg: Config) -> RegimeTags:
         trend=trend_days(idx, cfg.validation.trend_day_threshold),
         expiry=expiry_flags(ref.expiries),
         results=results_days(ref.results_dates, cal),
+        budget=ref.budget_days,
     )

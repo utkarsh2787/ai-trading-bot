@@ -324,10 +324,12 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
 def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
     from orb.engine import Engine, summarize, write_run
     from orb.repro import run_metadata
+    from orb.reviews import require_reviewed
     from orb.scan import load_from_disk
     from orb.scoring import RuleScorer
     from orb.sim.ticks import daily_ticks
 
+    require_reviewed(cfg.reference.root)  # no run while any manual row is unreviewed
     start = date.fromisoformat(args.start) if args.start else cfg.run.start_date
     end = date.fromisoformat(args.end) if args.end else cfg.run.oos_start - timedelta(days=1)
     prereg = prereg_config_hash()
