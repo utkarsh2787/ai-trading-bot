@@ -8,7 +8,7 @@ against what is written here.
 | | |
 |---|---|
 | Spec version | **V1** (the original spec plus `docs/DECISIONS.md` items 1–57) |
-| Code commit | `c3e9f3d2b8f0bd8217fcde07f1bbf65aef8e6912` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
+| Code commit | `28fad2b0c26f762410ea80a2651f04a719673e6b` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
 | Config hash | `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b` (`config/default.yaml` + tick and cost tables, including the `prereg` thresholds) |
 | In-sample period | 2018-01-01 to 2024-09-30 |
 | OOS start | 2024-10-01 (OOS end: the last date of the frozen data snapshot, at most 2026-09-30) |
@@ -101,4 +101,17 @@ config hash above.
   `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
 - Before the first in-sample run, the run's `meta.json` git commit must equal
   this commit, or a later one recorded here with the same kind of note.
+
+### 2026-10-02: code commit re-pinned to `28fad2b0c26f762410ea80a2651f04a719673e6b` (before any real-data run)
+
+- Commits since `c3e9f3d`:
+  - the review gate (`orb backtest` refuses unreviewed manual rows);
+  - `calendar_exceptions.csv` and `budget_days.csv` built from reviewed
+    manual files;
+  - a `budget_day` regime table (report only);
+  - the user's review sign-offs.
+- No change to signal, trade, sizing or cost logic. The newly excluded
+  outage days are reference data and are covered by each run's data version.
+- The config hash is unchanged:
+  `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
 
