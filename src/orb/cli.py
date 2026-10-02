@@ -338,6 +338,7 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
+    from orb import provenance
     from orb.engine import Engine, summarize, write_run
     from orb.repro import run_metadata
     from orb.reviews import require_reviewed
@@ -346,6 +347,7 @@ def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
     from orb.sim.ticks import daily_ticks
 
     require_reviewed(cfg.reference.root)  # no run while any manual row is unreviewed
+    prov = provenance.preflight(Path.cwd(), cfg.data.root, args.oos)  # clean tree, logged changes
     start = date.fromisoformat(args.start) if args.start else cfg.run.start_date
     end = date.fromisoformat(args.end) if args.end else cfg.run.oos_start - timedelta(days=1)
     prereg = prereg_config_hash()
@@ -362,8 +364,20 @@ def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
     res = Engine(cfg, builder, ticks, RuleScorer(cfg.scoring)).run(
         start, end, oos=args.oos, force_reason=args.force_oos_reason
     )
-    meta = {**run_metadata(cfg), "prereg_config_hash": prereg, "prereg_match": prereg == cfg.hash()}
+    meta = {
+        **run_metadata(cfg),
+        "prereg_config_hash": prereg,
+        "prereg_match": prereg == cfg.hash(),
+        "provenance": {
+            **{k: v for k, v in prov.items() if k != "will_pin"},
+            "pinned_commit": prov["pinned_commit"] or prov["commit"],
+            "pinned_by_this_run": prov["will_pin"],
+        },
+    }
     out = write_run(res, cfg, args.out, meta)
+    if prov["will_pin"]:  # first successful in-sample run pins the code
+        pin = provenance.save_pin(cfg.data.root, prov["commit"], out.name)
+        log.info("pinned in-sample commit %s (run %s)", pin["commit"][:12], pin["run_id"])
     print(res.header())
     print(summarize(res.book))
     print(f"run written to {out}")

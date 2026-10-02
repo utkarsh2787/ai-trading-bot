@@ -479,6 +479,22 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
         json.dumps({"verdict": verdict, "criteria": [c.__dict__ for c in crit]}, indent=1)
     )
     git = meta.get("git", {})
+    prov = meta.get("provenance") or {}
+    if prov.get("pinned_by_this_run"):
+        prov_lines = [
+            f"- code: commit `{prov['commit']}`; **this run pinned it** (first in-sample run)"
+        ]
+    elif prov.get("pinned_commit"):
+        d = prov.get("diff_since_pin") or {}
+        label = "OOS commit" if meta.get("oos") else "this run's commit"
+        prov_lines = [
+            f"- code: pinned in-sample commit `{prov['pinned_commit']}`; {label} "
+            f"`{prov.get('commit')}`",
+            f"- diff since the pin: {len(d.get('commits', []))} commit(s); result-relevant "
+            f"files changed: {', '.join(d.get('relevant_files', [])) or 'none'}",
+        ]
+    else:
+        prov_lines = ["- code: no provenance recorded"]
     sample = "OUT-OF-SAMPLE" if meta.get("oos") else "in-sample"
     lines = [
         meta.get("survivorship_gap", "survivorship gap: n/a"),
@@ -498,6 +514,7 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
         f"- data version: `{meta.get('data_version')}` "
         f"(vendor snapshot {meta.get('vendor_snapshot_id')})",
         "- primary book: default entry-candle rule, 1x slippage; gross and net shown separately",
+        *prov_lines,
         "",
         "## Summary (all books)",
         _md(summ),
@@ -520,6 +537,17 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     ]
     for k, v in sv.items():
         lines += [f"## Score validity: {k}", _md(v)]
+    d = prov.get("diff_since_pin")
+    if d:
+        lines += [
+            "## Code diff since the pinned in-sample commit",
+            "```",
+            *d.get("commits", []),
+            "",
+            d.get("stat", ""),
+            "```",
+            "",
+        ]
     (out / "report.md").write_text("\n".join(lines))
     return out
 

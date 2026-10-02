@@ -8,7 +8,7 @@ against what is written here.
 | | |
 |---|---|
 | Spec version | **V1** (the original spec plus `docs/DECISIONS.md` items 1–57) |
-| Code commit | `5f1548e27f6a83b8a76298f9098949e1793bde2a` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
+| Code commit | **pinned automatically by the first in-sample run**, in its `meta.json` and in `data/_runs/insample_pin.json` (amendment of 2026-10-02, "code-provenance rule"). The earlier manual pins (`8577adf` and later) are superseded. |
 | Config hash | `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b` (`config/default.yaml` + tick and cost tables, including the `prereg` thresholds) |
 | In-sample period | 2018-01-01 to 2024-09-30 |
 | OOS start | 2024-10-01 (OOS end: the last date of the frozen data snapshot, at most 2026-09-30) |
@@ -121,4 +121,29 @@ config hash above.
   read errors) and `orb dq` gained a ragged-row check. Budget days were
   confirmed. No change to signal, trade, sizing or cost logic, and the config
   hash is unchanged.
+
+### 2026-10-02: code-provenance rule (replaces per-commit re-pinning; before any real-data run)
+
+1. **Pin.** The code commit is pinned automatically by the **first** successful
+   in-sample `orb backtest`. It's written to that run's `meta.json`
+   (`provenance.pinned_commit`) and to `data/_runs/insample_pin.json`. The
+   pin is never overwritten.
+2. **Clean tree.** `orb backtest` refuses to run on a dirty working tree
+   (tracked or untracked changes), in-sample and OOS alike.
+3. **Logged changes.** After the pin, every commit touching result-relevant
+   code must be logged in `docs/CHANGELOG_RESEARCH.md`, its hash (at least 7
+   characters) included, with the reason and before/after metrics.
+   Result-relevant code means signal, scoring, sizing, fills, costs and the
+   engine: `src/orb/{signals,features,context,scan}.py`,
+   `src/orb/scoring/`, `src/orb/sim/`,
+   `src/orb/{portfolio,engine,invariants}.py`, `src/orb/data/adjust.py` and
+   `config/`. `orb backtest` diffs the history since the pinned commit against
+   these paths and refuses to run if a relevant commit isn't logged.
+4. **OOS.** OOS needs the pin, records its own commit, and stores the diff
+   summary from the pinned in-sample commit (commits, `diff --stat`, relevant
+   files). `report.md` prints that summary.
+
+The config hash
+(`0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`) and the
+success criteria a–e remain frozen as above.
 

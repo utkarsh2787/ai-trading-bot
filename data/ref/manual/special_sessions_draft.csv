@@ -1,4 +1,5 @@
 date,session_type,proposed_action,detection_reason,in_candidate_list,candidate_label,bhav_present,turnover_ratio,median_first,median_last,median_candles,needs_review,note
+2016-10-30,special,exclude,weekend;low_turnover,false,,true,0.16203837076710803,,,,true,detected; not in the candidate list
 2017-07-10,other,calendar_exception,low_turnover,false,,true,0.2578668016790611,,,,false,moved to calendar_exceptions_manual.csv as an outage (user decision)
 2017-10-19,muhurat,exclude,low_turnover,true,Muhurat,true,0.19143124004777948,,,,false,candidate confirmed by detection
 2018-11-07,muhurat,exclude,low_turnover,true,Muhurat,true,0.13066735289570272,,,,false,candidate confirmed by detection

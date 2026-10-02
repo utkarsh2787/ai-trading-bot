@@ -6,7 +6,7 @@ bug fixes are allowed under V1; any spec change starts V1.1.
 For each entry, record:
 
 - **Date**
-- **Commit** (before → after)
+- **Commit: `<hash>`**: the commit being logged (at least 7 characters). `orb backtest` looks for this hash, and refuses to run if a result-relevant commit since the pin is missing
 - **Reason**: the bug, and how it was found
 - **Before / after** for every criterion a–e, from the primary book: trades,
   net at 1× and 2×, null p, positive-year share, and net R by score bucket

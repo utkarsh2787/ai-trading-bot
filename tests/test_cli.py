@@ -13,7 +13,7 @@ from tests.conftest import ROOT
 DAYS = [date(2018, 1, d) for d in (1, 2, 3)]
 
 
-def test_local_download_then_dq(tmp_path, capsys):
+def test_local_download_then_dq(tmp_path, capsys, monkeypatch):
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir()
     for n in ("default.yaml", "tick_sizes.yaml", "costs.yaml"):
@@ -103,6 +103,10 @@ def test_local_download_then_dq(tmp_path, capsys):
         else:
             assert r["reason"].startswith("INSUFFICIENT_HISTORY")
 
+    # backtests need a clean git tree: run from an empty committed repo
+    from tests.test_provenance import make_repo
+
+    monkeypatch.chdir(make_repo(tmp_path / "repo"))
     main(
         [
             "--config",
