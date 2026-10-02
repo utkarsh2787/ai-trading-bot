@@ -4,7 +4,8 @@
   2. deployed notional <= deploy_fraction x equity_d (no leverage)
   3. entries only on the 14:30..14:35 candles
   4. exits at or before 15:10 (the 15:10 open, or the close of an earlier candle),
-     never before the entry
+     never before the entry; only EXIT_LOCKED / EXIT_LOCKED_UNFILLED trades may exit
+     later, and never after the last candle (15:29)
   5. at most one trade per stock per day
   6. no trades once equity_d < ruin_equity
   7. cash never negative: equity_d - sum(notional + entry charges) >= 0
@@ -17,6 +18,7 @@ from __future__ import annotations
 from orb.features import slot
 from orb.v2.config import ConfigV2
 from orb.v2.sizing import DayLimits
+from orb.v2.trade import LATE_EXITS
 
 TOL = 0.01
 
@@ -30,6 +32,7 @@ def violations(taken: list[dict], lim: DayLimits, book: str, cfg: ConfigV2) -> l
         return []
     s = cfg.session
     e0, e1, x = slot(s, s.entry_candle), slot(s, s.entry_last), slot(s, s.exit_candle)
+    last = slot(s, s.last_candle)
     tag = f"{lim.day} {book}"
     out = []
     if len(taken) > cfg.selection.max_positions:
@@ -49,7 +52,10 @@ def violations(taken: list[dict], lim: DayLimits, book: str, cfg: ConfigV2) -> l
         sym = t["symbol"]
         if not e0 <= t["entry_slot"] <= e1:
             out.append(f"{tag}: {sym} entry slot {t['entry_slot']} outside 14:30-14:35")
-        late = t["exit_slot"] > x or (t["exit_at"] == "close" and t["exit_slot"] >= x)
+        if t.get("exit_reason") in LATE_EXITS:  # circuit-locked exit: up to 15:29 only
+            late = t["exit_slot"] > last
+        else:
+            late = t["exit_slot"] > x or (t["exit_at"] == "close" and t["exit_slot"] >= x)
         if late or t["exit_slot"] < t["entry_slot"]:
             out.append(f"{tag}: {sym} exit {t['exit_at']} of slot {t['exit_slot']} invalid")
         if t["qty"] < 1 or abs(t["notional"] - t["qty"] * t["entry_price"]) > 1e-6:

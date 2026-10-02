@@ -174,6 +174,7 @@ def test_invariants_clean(cfg_v2):
         ([trade("A", exit_slot=356)], lim(), "exit"),
         ([trade("A", exit_slot=355, exit_at="close")], lim(), "exit"),
         ([trade("A", qty=0, notional=0.0)], lim(), "qty"),
+        ([trade("A", exit_slot=375, exit_reason="EXIT_LOCKED")], lim(), "exit"),  # past 15:29
     ],
 )
 def test_invariants_fire(cfg_v2, taken, limits, needle):
@@ -217,3 +218,13 @@ def test_equity_book_order(cfg_v2):
     with pytest.raises(ValueError):
         eb.limits(D1)
     assert date(2024, 6, 26) == D1
+
+
+def test_late_exit_allowed_only_when_locked(cfg_v2):
+    ok = [
+        trade("A", exit_slot=358, exit_reason="EXIT_LOCKED"),
+        trade("B", exit_slot=374, exit_at="close", exit_reason="EXIT_LOCKED_UNFILLED"),
+    ]
+    assert inv.violations(ok, lim(), "primary", cfg_v2) == []
+    bad = [trade("A", exit_slot=358, exit_reason="HARD_EXIT")]
+    assert any("exit" in x for x in inv.violations(bad, lim(), "primary", cfg_v2))

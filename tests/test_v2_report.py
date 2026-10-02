@@ -36,7 +36,7 @@ def test_report_layout(golden_run, cfg_v2):
     lines = (rp.build_report_v2(golden_run, cfg_v2, empty_tags()) / "report.md").read_text()
     ls = lines.splitlines()
     assert ls[0].startswith("survivorship gap:")
-    assert [x[:9] for x in ls[1:6]] == ["[FAIL] a.", "[PASS] b.", ls[3][:9], "[PASS] d.", ls[5][:9]]
+    assert [x[:9] for x in ls[1:6]] == ["[FAIL] a.", "[FAIL] b.", ls[3][:9], "[FAIL] d.", ls[5][:9]]
     assert ls[1].endswith(": 3")
     assert "p < 0.025 (Bonferroni, 2 strategies)" in ls[3]
     assert ls[6] == "IN-SAMPLE GATE (V2, a-d): FAIL -> OOS run NOT allowed"
@@ -55,8 +55,9 @@ def test_report_layout(golden_run, cfg_v2):
     assert pos == sorted(pos)
     head = pl.read_csv(golden_run / "report" / "summary.csv")
     p = head.filter(pl.col("book") == "primary").row(0, named=True)
-    assert p["trades"] == 3 and p["net_pnl_rounded"] == pytest.approx(10.3394, abs=1e-3)
-    assert p["final_equity"] == pytest.approx(10010.34, abs=1e-2) and p["exit_substituted"] == 1
+    assert p["trades"] == 3 and p["net_pnl_rounded"] == pytest.approx(-151.72, abs=0.006)
+    assert p["final_equity"] == pytest.approx(9848.28, abs=1e-2) and p["exit_substituted"] == 1
+    assert (p["exit_locked"], p["exit_locked_unfilled"]) == (1, 0)
 
 
 def test_null_flips_only_the_raw_move():

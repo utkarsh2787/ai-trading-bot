@@ -5,7 +5,9 @@ Every stock: prev close 100, ATR14 3 -> atr_pct 0.03. Non-F&O, nothing locked.
 equity_d = 10,000 -> Deployable 8,000 -> Slot_d = 2,666.666667.
 
   A long  P_0945 102.40 -> z +0.80 (rank 1); entry 14:30 open 101.20; exit 15:10 open 102.00
-  B short P_0945  97.90 -> z -0.70 (rank 2); entry 14:30 open  98.10; exit 15:10 open  97.50
+  B short P_0945  97.90 -> z -0.70 (rank 2); entry 14:30 open  98.10; 15:10 and 15:11
+          LOCKED at an upper circuit (H = L = 104.00 = day's high so far) -> a short can't
+          buy back -> forward to 15:12 (H 104.00, L 103.40: unlocked), open 103.50 (EXIT_LOCKED)
   C long  P_0945 101.80 -> z +0.60 (rank 3); 14:30 missing -> 14:31 open 101.75 (ENTRY_DELAYED);
           15:10 missing -> 15:09 close 101.10 (EXIT_SUBSTITUTED)
   D long  P_0945 101.50 -> z +0.50 (rank 4): not selected
@@ -14,16 +16,16 @@ PRIMARY slippage: 1 tick per fill, no rounding
   A buy 101.20 + 0.01 = 101.21; qty floor(2666.67 / 101.21 = 26.35) = 26;
     sell 102.00 - 0.01 = 101.99
     gross (101.99 - 101.21) x 26 = 20.28
-  B sell 98.10 - 0.01 = 98.09; qty floor(2666.67 / 98.09 = 27.19) = 27; buy 97.50 + 0.01 = 97.51
-    gross (98.09 - 97.51) x 27 = 15.66
+  B sell 98.10 - 0.01 = 98.09; qty floor(2666.67 / 98.09 = 27.19) = 27; buy 103.50 + 0.01 = 103.51
+    gross (98.09 - 103.51) x 27 = -146.34
   C buy 101.75 + 0.01 = 101.76; qty floor(26.21) = 26; sell 101.10 - 0.01 = 101.09
     gross (101.09 - 101.76) x 26 = -17.42
 STRESS (V1 model): 1 tick + 0.02% of price, rounded against the trade to 0.01
   A buy 101.20 + 0.01 + 0.020240 = 101.230240 -> 101.24; qty 26;
     sell 102.00 - 0.030400 = 101.9696 -> 101.96
     gross (101.96 - 101.24) x 26 = 18.72
-  B sell 98.10 - 0.029620 = 98.070380 -> 98.07; qty 27; buy 97.50 + 0.029500 = 97.5295 -> 97.53
-    gross (98.07 - 97.53) x 27 = 14.58
+  B sell 98.10 - 0.029620 = 98.070380 -> 98.07; qty 27; buy 103.50 + 0.030700 = 103.5307 -> 103.54
+    gross (98.07 - 103.54) x 27 = -147.69
   C buy 101.75 + 0.030350 = 101.780350 -> 101.79; qty 26;
     sell 101.10 - 0.030220 = 101.06978 -> 101.06
     gross (101.06 - 101.79) x 26 = -18.98
@@ -32,8 +34,8 @@ Charges per order (value V): brokerage min(20, 0.03% V); STT 0.025% V on the sel
 exchange 0.00297% V; stamp 0.003% V on the buy; SEBI Rs 10/crore; GST 18% x
 (brokerage + exchange + SEBI). Contract note (per day, per book): STT and stamp day
 totals rounded half-up to the rupee, allocated back pro rata.
-  primary: STT 0.662935 + 0.6621075 + 0.657085 = 1.9821275 -> 2; stamp 0.2372997 -> 0
-  stress:  STT 0.66274 + 0.6619725 + 0.65689 = 1.9816025 -> 2;   stamp 0.2373627 -> 0
+  primary: STT 0.662935 + 0.6621075 + 0.657085 = 1.9821275 -> 2; stamp 0.2421597 -> 0
+  stress:  STT 0.66274 + 0.6619725 + 0.65689 = 1.9816025 -> 2;   stamp 0.2422308 -> 0
 """
 
 import pytest
@@ -80,15 +82,15 @@ EXPECTED = {
         "B": dict(
             side="short",
             entry=98.09,
-            exit=97.51,
+            exit=103.51,
             qty=27,
-            gross=15.66,
+            gross=-146.34,
             slip=0.54,
-            costs=2.80195215,
-            net=12.85804785,
-            costs_r=2.72893916,
-            net_r=12.93106084,
-            reason="HARD_EXIT",
+            costs=2.87002876,
+            net=-149.21002876,
+            costs_r=2.79215577,
+            net_r=-149.13215577,
+            reason="EXIT_LOCKED",
             entry_order=dict(
                 value=2648.43,
                 brokerage=0.794529,
@@ -99,13 +101,13 @@ EXPECTED = {
                 gst=0.15765044,
             ),
             exit_order=dict(
-                value=2632.77,
-                brokerage=0.789831,
+                value=2794.77,
+                brokerage=0.838431,
                 stt=0.0,
-                exchange=0.07819327,
-                stamp=0.0789831,
-                sebi=0.00263277,
-                gst=0.15671827,
+                exchange=0.08300467,
+                stamp=0.0838431,
+                sebi=0.00279477,
+                gst=0.16636148,
             ),
         ),
         "C": dict(
@@ -139,7 +141,7 @@ EXPECTED = {
                 gst=0.15645457,
             ),
         ),
-        "equity_end": 10010.3394055,
+        "equity_end": 9848.27618889,
     },
     "v1_model": {
         "A": dict(
@@ -176,15 +178,15 @@ EXPECTED = {
         "B": dict(
             side="short",
             entry=98.07,
-            exit=97.53,
+            exit=103.54,
             qty=27,
-            gross=14.58,
-            slip=1.62,
-            costs=2.80183335,
-            net=11.77816665,
-            costs_r=2.7289799,
-            net_r=11.8510201,
-            reason="HARD_EXIT",
+            gross=-147.69,
+            slip=1.89,
+            costs=2.87002342,
+            net=-150.56002342,
+            costs_r=2.79230188,
+            net_r=-150.48230188,
+            reason="EXIT_LOCKED",
             entry_order=dict(
                 value=2647.89,
                 brokerage=0.794367,
@@ -195,13 +197,13 @@ EXPECTED = {
                 gst=0.1576183,
             ),
             exit_order=dict(
-                value=2633.31,
-                brokerage=0.789993,
+                value=2795.58,
+                brokerage=0.838674,
                 stt=0.0,
-                exchange=0.07820931,
-                stamp=0.0789993,
-                sebi=0.00263331,
-                gst=0.15675041,
+                exchange=0.08302873,
+                stamp=0.0838674,
+                sebi=0.00279558,
+                gst=0.1664097,
             ),
         ),
         "C": dict(
@@ -235,7 +237,7 @@ EXPECTED = {
                 gst=0.15640814,
             ),
         ),
-        "equity_end": 10006.1394055,
+        "equity_end": 9843.80608353,
     },
 }
 
@@ -254,6 +256,9 @@ def golden_market(cfg):
             candle(b, "14:30", e, e + 0.1, e - 0.1, e)
             candle(b, "15:10", x, x + 0.1, x - 0.1, x)
         s[sym] = b
+    for t in ("15:10", "15:11"):  # B: upper circuit, H = L = 104.00 = the day's high so far
+        candle(s["B"], t, 104.00, 104.00, 104.00, 104.00)
+    candle(s["B"], "15:12", 103.50, 104.00, 103.40, 103.60)  # unlocked: H != L
     drop(s["C"], "14:30", "15:10")
     candle(s["C"], "14:31", 101.75, 101.85, 101.65, 101.75)
     candle(s["C"], "15:09", 101.05, 101.15, 101.00, 101.10)
@@ -326,3 +331,12 @@ def test_equity_end(golden, book):
 
 def test_d_not_in_book(golden):
     assert "D" not in golden.book.filter(golden.book["book"] == "primary")["symbol"].to_list()
+
+
+def test_b_forward_locked_exit(golden):
+    for book in ("primary", "v1_model"):
+        r = golden.book.filter((golden.book["book"] == book) & (golden.book["symbol"] == "B")).row(
+            0, named=True
+        )
+        assert r["exit_reason"] == "EXIT_LOCKED" and r["exit_at"] == "open"
+        assert r["exit_slot"] == 357 and r["exit_raw"] == pytest.approx(103.50)  # 15:12 open

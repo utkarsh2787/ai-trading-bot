@@ -149,38 +149,40 @@ def test_circuit_guard_entry(cfg_v2):
     assert sim(cfg_v2, b2, "long").status == tr.OK
 
 
-def test_circuit_guard_exit(cfg_v2):
-    # lower circuit from 15:08: a long can't sell at 15:10 -> close of 15:07 (unlocked)
-    b = trade_bars(
-        **{
-            "15_07": (99.0, 99.2, 98.8, 98.9),
-            "15_08": (95.0, 95.0, 95.0, 95.0),
-            "15_09": (95.0, 95.0, 95.0, 95.0),
-            "15_10": (95.0, 95.0, 95.0, 95.0),
-        }
-    )
+def test_circuit_guard_exit_forward(cfg_v2):
+    # lower circuit 15:10..15:12 (H = L = 95 = day's low so far): a long can't sell at
+    # 15:10 -> forward to the first unlocked candle, 15:13 (H 96, L 95), at its OPEN
+    b = flat()
+    for t in ("15:10", "15:11", "15:12"):
+        candle(b, t, 95.0, 95.0, 95.0, 95.0)
+    candle(b, "15:13", 95.40, 96.0, 95.0, 95.8)
     t = sim(cfg_v2, b, "long")
-    assert (
-        t.exit_reason == tr.EXIT_LOCKED
-        and t.exit_raw == pytest.approx(98.9)
-        and t.exit_at == "close"
-    )
-    assert sim(cfg_v2, b, "long", guard=False).exit_raw == pytest.approx(95.0)
-    # a short buys back: a lower circuit doesn't block it
-    assert sim(cfg_v2, b, "short").exit_reason == tr.HARD_EXIT
-    # locked all the way back to the entry -> the 15:10 open, still EXIT_LOCKED
-    b2 = flat()
-    i0 = tr.slot(cfg_v2.session, cfg_v2.session.entry_candle)
-    b2["o"][i0 + 1 :], b2["h"][i0 + 1 :], b2["l"][i0 + 1 :], b2["c"][i0 + 1 :] = (
-        90.0,
-        90.0,
-        90.0,
-        90.0,
-    )
-    b2["c"][i0] = 90.0
-    b2["l"][i0] = 90.0
-    t2 = sim(cfg_v2, b2, "long")
-    assert t2.exit_reason == tr.EXIT_LOCKED and t2.exit_at in ("open", "close")
+    assert (t.exit_reason, t.exit_at, t.exit_slot) == (tr.EXIT_LOCKED, "open", 358)
+    assert t.exit_raw == pytest.approx(95.40) and t.exit_price == pytest.approx(95.39)
+    assert sim(cfg_v2, b, "long", guard=False).exit_raw == pytest.approx(95.0)  # F&O: no guard
+    assert sim(cfg_v2, b, "short").exit_reason == tr.HARD_EXIT  # buying isn't blocked
+
+
+def test_circuit_guard_exit_unfilled(cfg_v2):
+    # locked from 15:10 to the close -> the 15:29 close, the locked price
+    b = flat()
+    i0 = tr.slot(cfg_v2.session, cfg_v2.session.exit_candle)
+    for k in ("o", "h", "l", "c"):
+        b[k][i0:] = 95.0
+    t = sim(cfg_v2, b, "long")
+    assert (t.exit_reason, t.exit_at, t.exit_slot) == (tr.EXIT_LOCKED_UNFILLED, "close", 374)
+    assert t.exit_raw == pytest.approx(95.0)
+    # an upper circuit through the close blocks a short's buy-back the same way
+    u = flat()
+    for k in ("o", "h", "l", "c"):
+        u[k][i0:] = 105.0
+    assert sim(cfg_v2, u, "short").exit_reason == tr.EXIT_LOCKED_UNFILLED
+
+
+def test_locked_check_only_on_the_1510_candle(cfg_v2):
+    # a lock at 15:05 that clears by 15:10 doesn't matter: normal 15:10 exit
+    b = trade_bars(**{"15_05": (95.0, 95.0, 95.0, 95.0)})
+    assert sim(cfg_v2, b, "long").exit_reason == tr.HARD_EXIT
 
 
 def test_slippage_models(cfg_v2):

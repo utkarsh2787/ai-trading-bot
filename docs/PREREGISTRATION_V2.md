@@ -85,10 +85,14 @@ that date.
 - **Entry.** If the entry candle (the 14:30 candle, or its fallback) is
   locked, the entry is skipped and logged `LOCKED_CIRCUIT`. The slot stays
   empty, and the count is reported.
-- **Exit.** If the 15:10 candle is locked, the trade exits at the first
-  unlocked candle found going back from 15:10, at that candle's close. This
-  mirrors `EXIT_SUBSTITUTED`. If no candle after the entry is unlocked, it
-  exits at the 15:10 open. Both cases are flagged `EXIT_LOCKED` and counted.
+- **Exit (amended 2026-10-02, before any V2 run; see Amendments).** If the
+  15:10 candle is locked against the exit order, the exit searches
+  **forward**: the open of the first unlocked candle from 15:11 to 15:29,
+  flagged `EXIT_LOCKED`. If every candle to the close is locked, the trade exits
+  at the 15:29 candle's close, the locked price, flagged
+  `EXIT_LOCKED_UNFILLED`. The two flags are counted separately. Only these
+  trades may exit after 15:10. The check applies to the 15:10 candle; a missing
+  15:10 candle stays `EXIT_SUBSTITUTED`.
 - **F&O membership per date.** It is derived from the F&O bhavcopies already
   cached (weekly samples; no new downloads). A stock is in F&O on date d if a
   stock futures contract (`FUTSTK` / `STF`) is listed in **both** weekly
@@ -218,7 +222,9 @@ so quantities stay as booked.
      minute;
    - a locked candle that isn't at the day's extreme is not caught;
    - F&O membership comes from weekly samples;
-   - the backward exit substitution on `EXIT_LOCKED` uses an earlier price.
+   - an `EXIT_LOCKED_UNFILLED` trade is booked at the locked 15:29 close,
+     although in reality it might not fill at all (it would be squared off by
+     the broker or carried into the next session).
 
    Real fills at a locked circuit would be no better, and often worse.
 3. **Primary slippage of 1 tick** is an assumption, not a measurement. The
@@ -261,4 +267,31 @@ The numbers refer to the V2 gap list. The changes made at approval are #15,
 | 18 | Criterion e: net / notional; labels at `Slot_d` under primary slippage; terciles over all in-sample qualifying labels; strictly rising |
 | 19 | Calendar years 2018–2024, partial 2024 included |
 | 20 | Primary book = `primary` slippage with rupee-rounded costs; Bonferroni over 2 strategies |
-| 21 | Circuit-lock guard, as specified above; heuristic (known limit 2) |
+| 21 | Circuit-lock guard, as specified above; heuristic (known limit 2). Exit search amended to forward (see Amendments) |
+
+## Amendments (all made before any V2 run)
+
+### 2026-10-02: `EXIT_LOCKED` searches forward
+
+- **Before:** with the 15:10 candle locked against the exit order, the exit
+  went back to the close of the first unlocked candle before 15:10, else the
+  15:10 open.
+- **Now:** the exit goes forward to the open of the first unlocked candle from
+  15:11 to 15:29 (`EXIT_LOCKED`). If all of them are locked, the trade exits
+  at the 15:29 close, the locked price (`EXIT_LOCKED_UNFILLED`).
+- **Reason:** going backwards used a price from before the decision, which is
+  both look-ahead and optimistic. Going forward is causal, and the price it
+  books is no better than what a locked market would allow.
+- **Reporting:** `EXIT_LOCKED` and `EXIT_LOCKED_UNFILLED` are counted
+  separately for every book.
+- **Invariant:** the "exit at or before 15:10" check is relaxed only for these
+  two flags. Such trades must still exit by 15:29, and never before their
+  entry.
+- **Approved at the same time** (no change to the rules): the exit lock is
+  checked on the side of the exit order; F&O membership comes from the weekly
+  samples; the guard uses the entry or exit candle's whole minute.
+- **Config hash:** the rule lives in code, using the existing session times
+  (`exit_candle` 15:10, `last_candle` 15:29). No config value changed, and the
+  hash is still
+  `ac6b5b549c9716588246fa93f31d5c4f8093467709db693e82ff41b9246e94c7`.
+

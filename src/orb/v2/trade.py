@@ -10,9 +10,10 @@ Circuit-lock guard (stocks NOT in F&O that day). A candle is locked for a BUY
 order if high == low == the day's high so far (from 09:15, incl. that candle),
 and for a SELL order if high == low == the day's low so far.
   * entry candle locked for the entry order -> LOCKED_CIRCUIT, no trade;
-  * exit candle locked for the exit order -> close of the first unlocked candle
-    going back from 15:10 (not before the entry candle), else the 15:10 open;
-    both EXIT_LOCKED.
+  * 15:10 candle locked for the exit order -> searches FORWARD: the open of the
+    first unlocked candle from 15:11 to 15:29 (EXIT_LOCKED); if all are locked,
+    the close of the 15:29 candle, the locked price (EXIT_LOCKED_UNFILLED).
+    (Pre-run amendment of 2026-10-02; a missing 15:10 candle stays EXIT_SUBSTITUTED.)
 
 Slippage per fill = ticks x tick + pct x price, against the trade; the fill is
 rounded against the trade to the tick only when the model says so (V1 model).
@@ -41,6 +42,8 @@ NO_TICK = "NO_TICK"
 HARD_EXIT = "HARD_EXIT"
 EXIT_SUBSTITUTED = "EXIT_SUBSTITUTED"
 EXIT_LOCKED = "EXIT_LOCKED"
+EXIT_LOCKED_UNFILLED = "EXIT_LOCKED_UNFILLED"
+LATE_EXITS = (EXIT_LOCKED, EXIT_LOCKED_UNFILLED)  # the only exits allowed after 15:10
 
 EPS = 1e-9
 
@@ -135,15 +138,16 @@ def simulate_v2(
         present = np.flatnonzero(~np.isnan(a.close[e:x])) + e
         j, at, reason = int(present[-1]), "close", EXIT_SUBSTITUTED
         flags.append("EXIT_FALLBACK")
-    if guard and locked(a, j, sell):
-        back = [
-            i
-            for i in range(j - 1, e - 1, -1)
-            if not np.isnan(a.close[i]) and not locked(a, i, sell)
+    if guard and reason == HARD_EXIT and locked(a, x, sell):
+        last = slot(cfg.session, cfg.session.last_candle)
+        fwd = [
+            i for i in range(x + 1, last + 1) if not np.isnan(a.open[i]) and not locked(a, i, sell)
         ]
-        if back:
-            j, at = back[0], "close"
-        reason = EXIT_LOCKED
+        if fwd:
+            j, at, reason = fwd[0], "open", EXIT_LOCKED
+        else:  # locked to the close: the 15:29 close (or the last close before it)
+            present = np.flatnonzero(~np.isnan(a.close[x : last + 1])) + x
+            j, at, reason = int(present[-1]), "close", EXIT_LOCKED_UNFILLED
     exit_raw = float(a.open[j] if at == "open" else a.close[j])
     exit_price = fill(exit_raw, sell, tick, model)
 
