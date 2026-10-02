@@ -1,0 +1,144 @@
+# V2 research defaults: intraday time-series momentum. Fixed values - NOT to be
+# optimised. Pre-registered in docs/PREREGISTRATION_V2.md (the config hash there
+# covers this file plus the tick and cost tables).
+
+strategy: v2
+
+run:
+  name: tsmom_v2
+  start_date: 2018-01-01        # same in-sample start as V1
+  end_date: 2026-09-30
+  oos_start: 2024-10-01         # locked behind --oos; never run so far
+  seed: 20180101
+
+# shared with V1 (same raw store, reference files and DQ exclusions in data/_dq)
+data:
+  root: data
+  provider: kite                # kite | local
+  daily_history_start: 2016-01-01   # fixed Wilder-ATR seed origin (decision 7)
+  minute_history_start: 2017-10-01  # >= 20 sessions of RV warm-up before run.start_date
+  deadjust_tolerance: 0.005         # Kite vs bhavcopy OHLC ratio dispersion within a day
+  deadjust_drift_tolerance: 0.001   # factor must be constant between corporate actions
+  index:
+    primary: NIFTY 200
+    fallback: NIFTY 50
+    vix: INDIA VIX
+  kite:
+    api_key_env: KITE_API_KEY
+    access_token_env: KITE_ACCESS_TOKEN
+    exchange: NSE
+    index_exchange: NSE
+    max_requests_per_sec: 3
+    minute_chunk_days: 60
+    day_chunk_days: 2000
+    max_retries: 5
+    backoff_base_sec: 1.0
+    price_basis: adjusted       # fixed: Kite has no unadjusted series
+  local:
+    root: vendor
+    minute_glob: "minute/{symbol}.*"
+    daily_glob: "daily/{symbol}.*"
+    timezone: Asia/Kolkata
+    price_basis: raw            # raw | adjusted (adjusted -> de-adjusted via bhavcopy)
+    columns:                    # vendor column -> canonical column
+      timestamp: ts
+      date: date
+      open: open
+      high: high
+      low: low
+      close: close
+      volume: volume
+  nse:
+    archives_base: https://nsearchives.nseindia.com
+    www_base: https://www.nseindia.com
+    niftyindices_base: https://www.niftyindices.com
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    max_requests_per_sec: 1
+    timeout_sec: 30
+    max_retries: 3
+    bhavcopy_udiff_from: 2024-07-08
+    series: [EQ, BE]
+
+reference:
+  root: data/ref
+  membership: nifty200_membership.csv
+  ban_list: fo_ban.csv
+  corporate_actions: corporate_actions.csv
+  special_sessions: special_sessions.csv
+  calendar_exceptions: calendar_exceptions.csv
+  budget_days: budget_days.csv
+  symbol_map: symbol_map.csv
+  expiries: expiries.csv
+  results_dates: results_dates.csv
+  excluding_action_types: [split, bonus, rights, demerger, merger]
+
+session:
+  first_candle: "09:15"
+  last_candle: "15:29"
+  signal_candle: "09:44"        # P_0945 = close of the 09:44 candle (closes 09:45:00)
+  signal_fallback_from: "09:40" # 09:44 missing -> last close 09:40..09:43 (P0945_SUBSTITUTED)
+  entry_candle: "14:30"         # entry = open of this candle + slippage
+  entry_last: "14:35"           # 14:30 missing -> first candle 14:31..14:35, else ENTRY_MISSING
+  exit_candle: "15:10"          # exit = open of this candle - slippage
+
+features:
+  atr_period: 14                # Wilder ATR14 as in V1 (daily bars up to the previous day)
+  min_daily_bars: 100           # warm-up, as in V1; no volume baseline in V2
+
+signal:
+  z_min: 0.25                   # z = r1 / (ATR14 / prev_close); qualifies if |z| >= 0.25
+  direction: sign_r1            # long if r1 > 0, short if r1 < 0
+
+selection:
+  max_positions: 3              # top 3 by |z| at 09:45
+  rank_by: abs_z_desc
+  tie_break: symbol_asc
+  replacements: false
+
+sizing:
+  starting_capital: 10000
+  deploy_fraction: 0.80         # Deployable_d = 80% x equity_d; Slot_d = Deployable_d / 3
+  ruin_equity: 5000             # no new trades once equity_d < Rs 5,000
+  equity_basis: net_pnl_rounded # equity_d = 10,000 + cumulative rounded net to d-1
+  leverage: false
+
+execution:
+  books:
+    primary:    {ticks: 1, pct: 0.0, round_to_tick: false}     # 1 tick per fill, no rounding
+    primary_2x: {ticks: 2, pct: 0.0, round_to_tick: false}     # reported only
+    v1_model:   {ticks: 1, pct: 0.0002, round_to_tick: true}   # stress: V1 model, rounded against
+  primary_book: primary
+  stress_book: v1_model
+  exchange: NSE
+  round_stt_stamp_to_rupee: true  # per contract note (per day); reports show both
+  tick_table: tick_sizes.yaml     # same tables as V1
+  cost_table: costs.yaml
+
+circuit_guard:
+  enabled: true
+  apply_to: non_fno             # only stocks NOT in F&O on that date
+  fno_membership: data/ref/fno_stocks.csv  # weekly F&O bhavcopy samples (cached; no new downloads)
+  fno_rule: both_bracketing_samples   # transition weeks count as non-F&O (guard applies)
+  ban_list_implies_fno: true          # a stock on the F&O ban list is in F&O that day
+
+index_variant:                  # secondary null: index-level signal
+  z_min: 0.25
+  rank_by: alignment_desc       # alignment = z x sign(r1_index), top 3, index direction
+
+validation:
+  null_bootstrap: 2000
+  vix_terciles_from: expanding
+  vix_min_history: 250
+  trend_day_threshold: 0.5
+  results_window_sessions: 3
+  expiry_types: [index_weekly, index_monthly, stock_monthly]
+  z_terciles: 3                 # criterion e (informational)
+  post_start: 2020-01-01        # secondary diagnostic: lower survivorship gap
+
+prereg:                         # docs/PREREGISTRATION_V2.md
+  version: V2
+  strategies_tested: 2          # V1, V2 -> Bonferroni 0.05 / 2
+  min_trades: 300               # a.
+  null_p_max: 0.025             # c. one-sided
+  min_positive_year_share: 0.60 # d. ... and the ruin stop is never hit
+  ruin_never_hit: true
