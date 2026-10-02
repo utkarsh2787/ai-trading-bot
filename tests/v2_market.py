@@ -41,30 +41,47 @@ def arrays(b: dict) -> SessionArrays:
     return SessionArrays(b["o"], b["h"], b["l"], b["c"], np.where(np.isnan(b["c"]), 0, 1000.0))
 
 
-def market(cfg, stocks: dict[str, dict], excluded: list[str] = (), index: dict | None = None):
-    cal = weekdays(date(2024, 1, 1), 130)
-    assert cal[-1] == T
-    daily, minute = [], []
-    for sym, b in stocks.items():
-        daily.append(flat_daily(sym, cal, close=100.0, rng=3.0))
-        ok = ~np.isnan(b["c"])
-        minute.append(
-            bars_from_arrays(sym, T, b["o"], b["h"], b["l"], b["c"], np.full(N, 1000)).filter(
-                pl.Series(ok)
-            )
+CAL = weekdays(date(2024, 1, 1), 130)
+assert CAL[-1] == T
+
+
+def _minute(sym: str, day: date, b: dict) -> pl.DataFrame:
+    ok = ~np.isnan(b["c"])
+    return bars_from_arrays(sym, day, b["o"], b["h"], b["l"], b["c"], np.full(N, 1000)).filter(
+        pl.Series(ok)
+    )
+
+
+def market_days(
+    cfg,
+    days: dict[date, dict[str, dict]],
+    excluded: list[tuple[str, date]] = (),
+    index: dict[date, dict] | None = None,
+):
+    """Minute bars on ``days`` only; flat daily bars (close 100, ATR 3) for every symbol."""
+    syms = sorted({s for st in days.values() for s in st})
+    daily = pl.concat([flat_daily(s, CAL, close=100.0, rng=3.0) for s in syms])
+    minute = pl.concat([_minute(s, d, b) for d, st in days.items() for s, b in st.items()])
+    imin = []
+    for d in days:
+        ib = (index or {}).get(d) or flat(20000.0)
+        imin.append(
+            bars_from_arrays("NIFTY 200", d, ib["o"], ib["h"], ib["l"], ib["c"], np.zeros(N))
         )
-    ib = index or flat(20000.0)
-    imin = bars_from_arrays("NIFTY 200", T, ib["o"], ib["h"], ib["l"], ib["c"], np.zeros(N))
-    m = Market(cfg, cal, pl.concat(daily), pl.concat(minute), imin)
+    m = Market(cfg, CAL, daily, minute, pl.concat(imin))
     m.excluded = pl.DataFrame(
         {
-            "symbol": list(excluded),
-            "date": [T] * len(excluded),
+            "symbol": [s for s, _ in excluded],
+            "date": [d for _, d in excluded],
             "reason": ["FNO_BAN"] * len(excluded),
         },
         schema={"symbol": pl.String, "date": pl.Date, "reason": pl.String},
     )
     return m
+
+
+def market(cfg, stocks: dict[str, dict], excluded: list[str] = (), index: dict | None = None):
+    return market_days(cfg, {T: stocks}, [(s, T) for s in excluded], {T: index} if index else None)
 
 
 def builder(m: Market) -> V2ContextBuilder:
