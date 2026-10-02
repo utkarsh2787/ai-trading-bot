@@ -8,7 +8,7 @@ against what is written here.
 | | |
 |---|---|
 | Spec version | **V1** (the original spec plus `docs/DECISIONS.md` items 1–57) |
-| Code commit | `28fad2b0c26f762410ea80a2651f04a719673e6b` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
+| Code commit | `5f1548e27f6a83b8a76298f9098949e1793bde2a` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
 | Config hash | `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b` (`config/default.yaml` + tick and cost tables, including the `prereg` thresholds) |
 | In-sample period | 2018-01-01 to 2024-09-30 |
 | OOS start | 2024-10-01 (OOS end: the last date of the frozen data snapshot, at most 2026-09-30) |
@@ -114,4 +114,11 @@ config hash above.
   outage days are reference data and are covered by each run's data version.
 - The config hash is unchanged:
   `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
+
+### 2026-10-02: code commit re-pinned to `5f1548e27f6a83b8a76298f9098949e1793bde2a` (before any real-data run)
+
+- Since `28fad2b`, CSV I/O was centralised (explicit quoting, file names in
+  read errors) and `orb dq` gained a ragged-row check. Budget days were
+  confirmed. No change to signal, trade, sizing or cost logic, and the config
+  hash is unchanged.
 

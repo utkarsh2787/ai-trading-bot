@@ -14,3 +14,4 @@ date,session_type,proposed_action,detection_reason,in_candidate_list,candidate_l
 2024-11-01,muhurat,exclude,low_turnover,true,Muhurat,true,0.18000834052725664,,,,false,candidate confirmed by detection
 2025-02-01,special,tag_budget,weekend,true,Saturday session (Budget),true,1.0735097491886991,,,,false,candidate confirmed by detection
 2025-10-21,muhurat,exclude,low_turnover,true,Muhurat,true,0.19478785432761106,,,,false,candidate confirmed by detection
+2026-02-01,special,tag_budget,weekend,true,Sunday session (Budget),true,0.9336806607616781,,,,false,candidate confirmed by detection

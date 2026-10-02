@@ -1,12 +1,12 @@
 date,type,source,needs_review,note
-2018-02-01,full,"user candidate; bhavcopy: Thu session, 1,627 symbols, turnover 115% of the +-10-session median",true,
-2019-02-01,interim,"user candidate; bhavcopy: Fri session, 1,630 symbols, turnover 131%",true,
-2019-07-05,full,"user candidate; bhavcopy: Fri session, 1,635 symbols, turnover 113%",true,
+2018-02-01,full,"user candidate; bhavcopy: Thu session, 1,627 symbols, turnover 115% of the +-10-session median",false,
+2019-02-01,interim,"user candidate; bhavcopy: Fri session, 1,630 symbols, turnover 131%",false,
+2019-07-05,full,"user candidate; bhavcopy: Fri session, 1,635 symbols, turnover 113%",false,
 2020-02-01,full,"Saturday Budget session; full length (turnover 97% of the +-10-session median, special_sessions_draft)",false,traded and tagged (decision 16)
-2021-02-01,full,"user candidate; bhavcopy: Mon session, 1,705 symbols, turnover 116%",true,
-2022-02-01,full,"user candidate; bhavcopy: Tue session, 1,842 symbols, turnover 113%",true,
-2023-02-01,full,"user candidate; bhavcopy: Wed session, 1,993 symbols, turnover 165%",true,
-2024-02-01,interim,"user candidate; bhavcopy: Thu session, 2,109 symbols, turnover 104%",true,
-2024-07-23,full,"user candidate; bhavcopy: Tue session, 2,173 symbols, turnover 124%",true,
+2021-02-01,full,"user candidate; bhavcopy: Mon session, 1,705 symbols, turnover 116%",false,
+2022-02-01,full,"user candidate; bhavcopy: Tue session, 1,842 symbols, turnover 113%",false,
+2023-02-01,full,"user candidate; bhavcopy: Wed session, 1,993 symbols, turnover 165%",false,
+2024-02-01,interim,"user candidate; bhavcopy: Thu session, 2,109 symbols, turnover 104%",false,
+2024-07-23,full,"user candidate; bhavcopy: Tue session, 2,173 symbols, turnover 124%",false,
 2025-02-01,full,"Saturday Budget session; full length (turnover 107% of the +-10-session median, special_sessions_draft)",false,traded and tagged (decision 16)
-2026-02-01,full,"user candidate; bhavcopy: SUNDAY special session, 2,507 symbols, turnover 93% (full length)",true,"weekend session: traded and tagged, not excluded; also in special_session_candidates as Budget"
+2026-02-01,full,"user candidate; bhavcopy: SUNDAY special session, 2,507 symbols, turnover 93% (full length)",false,"weekend session: traded and tagged, not excluded; also in special_session_candidates as Budget"
