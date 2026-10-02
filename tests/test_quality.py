@@ -212,3 +212,24 @@ def test_reconcile_daily_vs_minute(cfg):
     assert reconcile_daily_minute(daily, m, cfg.dq).height == 0
     off = daily.with_columns(pl.col("high") * 1.05)
     assert reconcile_daily_minute(off, m, cfg.dq)["check"].to_list() == ["daily_minute_mismatch"]
+
+
+def test_rebuilt_minute_hl_vs_official_is_an_error_beyond_half_percent(cfg):
+    m = minute_session("A", DAY, seed=1)
+    official = pl.DataFrame(
+        {
+            "symbol": ["A"],
+            "date": [DAY],
+            "open": [m["open"][0]],
+            "high": [m["high"].max()],
+            "low": [m["low"].min()],
+            "close": [m["close"][-1]],
+            "volume": [m["volume"].sum()],
+        }
+    )
+    near = official.with_columns(pl.col("high") * 1.004)  # 0.4%: fine
+    far = official.with_columns(pl.col("low") * 0.994)  # 0.6%: error
+    assert reconcile_daily_minute(near, m, cfg.dq).height == 0
+    r = reconcile_daily_minute(far, m, cfg.dq)
+    assert r["severity"].to_list() == ["error"]
+    assert excluded_stock_days(r).to_dicts() == [{"symbol": "A", "date": DAY}]

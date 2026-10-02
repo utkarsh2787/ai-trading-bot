@@ -46,9 +46,24 @@ def test_local_download_then_dq(tmp_path, capsys, monkeypatch):
         m.with_columns(pl.col("ts").dt.replace_time_zone(None)).drop("symbol").write_csv(
             vendor / "minute" / f"{sym}.csv"
         )
-        daily_bars(sym, date(2016, 1, 1), 600).filter(pl.col("date") <= DAYS[-1]).drop(
-            "symbol"
-        ).write_parquet(vendor / "daily" / f"{sym}.parquet")
+        # daily bars: random history before the test days, then the test days'
+        # official bars aggregated from the same 1-min bars (as in real data)
+        hist = daily_bars(sym, date(2016, 1, 1), 600).filter(pl.col("date") < DAYS[0])
+        agg = (
+            m.unique(subset=["ts"])
+            .group_by(date=pl.col("ts").dt.date())
+            .agg(
+                open=pl.col("open").first(),
+                high=pl.col("high").max(),
+                low=pl.col("low").min(),
+                close=pl.col("close").last(),
+                volume=pl.col("volume").sum(),
+            )
+            .with_columns(symbol=pl.lit(sym))
+        )
+        pl.concat([hist, agg.select(hist.columns)]).sort("date").drop("symbol").write_parquet(
+            vendor / "daily" / f"{sym}.parquet"
+        )
 
     cfg_path = str(cfg_dir / "default.yaml")
     main(["--config", cfg_path, "download"])

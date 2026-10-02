@@ -293,3 +293,38 @@ def test_report_labels_secondary_null_as_excluded(run, cfg):
     md = (reports.build_report(out, cfg, tags) / "report.md").read_text()
     assert "Secondary diagnostic: strict sign flip" in md
     assert "Excluded from pass/fail" in md
+
+
+def test_secondary_diagnostics_drift_and_post_2020(run, cfg, tmp_path):
+    res, out = run
+    trades = reports.trade_log(res.book, cfg)
+    drift = pl.DataFrame({"symbol": ["A"], "date": [T]})  # A's trade day is a drift day
+    sd = {
+        r["scenario"]: r
+        for r in reports.secondary_diagnostics(trades, res.null, drift, cfg).to_dicts()
+    }
+    ref = sd["all trades (reference = criteria a-c)"]
+    nod = sd["drift stock-days excluded"]
+    post = sd["from 2020-01-01 (lower survivorship gap)"]
+    assert (ref["trades"], nod["trades"], post["trades"]) == (3, 2, 3)
+    assert ref["net_rounded_1x"] == pytest.approx(DAY_NET_ROUNDED, abs=0.01)
+    a_net = EXPECTED["A"]["net_rounded"]
+    assert nod["net_rounded_1x"] == pytest.approx(DAY_NET_ROUNDED - a_net, abs=0.01)
+    assert nod["null_trades"] == 2 and ref["null_trades"] == 3
+    fd = tmp_path / "factor_drift.csv"
+    fd.write_text(
+        "symbol,start,end,n_days,segment_factor,min_factor,max_factor\n"
+        "A,2024-06-28,2024-06-28,1,1.0,1.002,1.002\n"
+    )
+    tags = reports.RegimeTags(
+        vix=pl.DataFrame(schema={"date": pl.Date, "vix_tercile": pl.String}),
+        trend=pl.DataFrame(schema={"date": pl.Date, "trend_day": pl.Boolean}),
+        expiry=pl.DataFrame(schema={"date": pl.Date, "is_expiry": pl.Boolean}),
+        results=pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date}),
+    )
+    rep = reports.build_report(out, cfg, tags, drift, fd)
+    md = (rep / "report.md").read_text()
+    assert "## Secondary diagnostics (excluded from pass/fail)" in md
+    assert (rep / "factor_drift.csv").exists() and (rep / "secondary_diagnostics.csv").exists()
+    # pass/fail lines are computed from the full book only
+    assert md.splitlines()[1].startswith("[FAIL] a.") and md.splitlines()[1].endswith(": 3")

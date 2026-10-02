@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from orb.data.quality import ERROR, ISSUE_SCHEMA, concat_issues
+from orb.data.quality import ERROR, ISSUE_SCHEMA, WARN, concat_issues
 from orb.data.schema import conform_minute
 
 _PX = ("open", "high", "low", "close")
@@ -92,7 +92,11 @@ DRIFT_SCHEMA = {
 def factor_drift(
     factors: pl.DataFrame, actions: pl.DataFrame, tolerance: float
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Between two corporate actions the vendor's adjustment factor must be constant.
+    """Between two corporate actions the vendor's adjustment factor should be constant.
+
+    Drift is a WARNING (decision 64): the recovered prices on drift days stay within
+    0.5% of NSE's official high/low (checked by ``reconcile_daily_minute``, an error
+    beyond 0.5%), so drift days are kept and reported, not excluded.
 
     Segments are delimited by every corporate-action ex-date of the symbol (any
     type: Kite also adjusts for extraordinary dividends). Within a segment the
@@ -125,7 +129,7 @@ def factor_drift(
             "symbol",
             "date",
             check=pl.lit("deadjust_factor_drift"),
-            severity=pl.lit(ERROR),
+            severity=pl.lit(WARN),
             value=pl.col("ratio"),
             detail=pl.format("segment factor {}", pl.col("_ref").round(6)),
         )

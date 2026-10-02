@@ -256,7 +256,8 @@ def _gap_issues(d: pl.DataFrame, actions: pl.DataFrame, dq: DQConfig) -> pl.Data
 
 
 def reconcile_daily_minute(daily: pl.DataFrame, minute: pl.DataFrame, dq: DQConfig) -> pl.DataFrame:
-    """Daily high/low vs aggregated minute high/low (raw basis)."""
+    """Rebuilt 1-min high/low vs the official daily high/low (bhavcopy for stocks).
+    ERROR beyond ``dq.daily_minute_tolerance`` (0.5%): the recovered prices are off."""
     if daily.height == 0 or minute.height == 0:
         return pl.DataFrame(schema=ISSUE_SCHEMA)
     agg = minute.group_by("symbol", date=pl.col("ts").dt.date()).agg(
@@ -271,7 +272,7 @@ def reconcile_daily_minute(daily: pl.DataFrame, minute: pl.DataFrame, dq: DQConf
     return _issues(
         j.filter(pl.col("diff") > dq.daily_minute_tolerance),
         "daily_minute_mismatch",
-        WARN,
+        ERROR,
         pl.col("diff"),
         "daily H/L differs from minute H/L",
     )

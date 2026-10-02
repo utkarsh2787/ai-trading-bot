@@ -147,3 +147,24 @@ The config hash
 (`0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`) and the
 success criteria a–e remain frozen as above.
 
+### 2026-10-02: factor drift is a warning; two secondary diagnostics (before any real-data run)
+
+- **Factor drift is a DQ warning, not an error.** Drift days are kept, and
+  `factor_drift.csv` is copied into every run's report. Two checks remain
+  errors (the stock-day is excluded):
+  1. the four Kite/bhavcopy price ratios (O/H/L/C) on a day disagree by more
+     than 0.5% (`deadjust_inconsistent`);
+  2. the rebuilt 1-min high or low is more than 0.5% from NSE's official
+     (bhavcopy) high or low (`daily_minute_mismatch`; it was a warning
+     before).
+- **Secondary diagnostics in `report.md`, excluded from pass/fail.** Each shows
+  trades, rupee-rounded net at 1× and 2× slippage, and the null p-value, for
+  the primary book:
+  1. *Drift sensitivity:* trades on factor-drift stock-days removed.
+  2. *Post-2020:* trades from 2020-01-01 onward (the survivorship gap is
+     8–9% in 2017–2019).
+
+  Trades are removed from the existing book; freed slots are not reallocated.
+- No config value changed; the config hash is still
+  `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
+

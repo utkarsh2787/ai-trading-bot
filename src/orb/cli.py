@@ -399,9 +399,15 @@ def prereg_config_hash(path: str | Path = "docs/PREREGISTRATION.md") -> str | No
 
 
 def cmd_report(cfg: Config, args: argparse.Namespace) -> None:
-    from orb.reports import build_report, tags_from_disk
+    from orb.reports import build_report, drift_days_from_disk, tags_from_disk
 
-    out = build_report(args.run_dir, cfg, tags_from_disk(cfg))
+    out = build_report(
+        args.run_dir,
+        cfg,
+        tags_from_disk(cfg),
+        drift_days_from_disk(cfg),
+        Path(cfg.data.root) / "_dq" / "factor_drift.csv",
+    )
     print((out / "report.md").read_text().splitlines()[0])
     print(f"report written to {out}")
 

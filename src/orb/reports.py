@@ -422,6 +422,71 @@ def criteria(
     return out, verdict
 
 
+# ------------------------------------------------- secondary diagnostics
+
+POST_SURVIVORSHIP_START = date(2020, 1, 1)  # survivorship gap 8-9% in 2017-2019
+
+
+def secondary_diagnostics(
+    trades: pl.DataFrame, null: pl.DataFrame, drift_days: pl.DataFrame, cfg: Config
+) -> pl.DataFrame:
+    """Headline numbers on subsets of the primary book (pre-registration amendment
+    2026-10-02). Excluded from pass/fail. Trades are removed from the existing
+    book; freed slots are NOT re-allocated."""
+    pr = cfg.prereg
+    var = PRIMARY[0]
+    drift = drift_days.select("symbol", "date").unique()
+
+    def scenario(name: str, keep) -> dict:
+        t = keep(trades) if trades.height else trades
+        n = keep(null) if null.height else null
+
+        def net(mult: float) -> float:
+            b = t.filter((pl.col("variant") == var) & (pl.col("slippage_mult") == mult))
+            return round(float(b["net_pnl_rounded"].cast(pl.Float64).sum()), 2) if b.height else 0.0
+
+        base = (
+            t.filter((pl.col("variant") == var) & (pl.col("slippage_mult") == pr.base_slippage))
+            if t.height
+            else t
+        )
+        nt = null_test(n, cfg.validation.null_bootstrap, cfg.run.seed) if n.height else {}
+        return {
+            "scenario": name,
+            "trades": base.height,
+            f"net_rounded_{pr.base_slippage:g}x": net(pr.base_slippage),
+            f"net_rounded_{pr.stress_slippage:g}x": net(pr.stress_slippage),
+            "null_p": nt.get("p_value"),
+            "null_trades": nt.get("usable", 0),
+        }
+
+    def no_drift(df: pl.DataFrame) -> pl.DataFrame:
+        return df.join(drift, on=["symbol", "date"], how="anti")
+
+    def post(df: pl.DataFrame) -> pl.DataFrame:
+        return df.filter(pl.col("date") >= POST_SURVIVORSHIP_START)
+
+    return pl.DataFrame(
+        [
+            scenario("all trades (reference = criteria a-c)", lambda df: df),
+            scenario("drift stock-days excluded", no_drift),
+            scenario(f"from {POST_SURVIVORSHIP_START} (lower survivorship gap)", post),
+        ]
+    )
+
+
+def drift_days_from_disk(cfg: Config) -> pl.DataFrame:
+    p = Path(cfg.data.root) / "_dq" / "deadjust_issues.parquet"
+    if not p.exists():
+        return pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+    return (
+        pl.read_parquet(p)
+        .filter(pl.col("check") == "deadjust_factor_drift")
+        .select("symbol", "date")
+        .unique()
+    )
+
+
 # ------------------------------------------------------------------ report
 
 
@@ -435,7 +500,13 @@ def _md(df: pl.DataFrame) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
+def build_report(
+    run_dir: str | Path,
+    cfg: Config,
+    tags: RegimeTags,
+    drift_days: pl.DataFrame | None = None,
+    drift_report: str | Path | None = None,
+) -> Path:
     run = Path(run_dir)
     meta = json.loads((run / "meta.json").read_text())
     book = pl.read_parquet(run / "book.parquet")
@@ -537,6 +608,28 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     ]
     for k, v in sv.items():
         lines += [f"## Score validity: {k}", _md(v)]
+    drift_days = (
+        drift_days
+        if drift_days is not None
+        else pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+    )
+    sd = secondary_diagnostics(trades, null, drift_days, cfg) if trades.height else pl.DataFrame()
+    csvio.write_csv(sd, out / "secondary_diagnostics.csv")
+    lines += [
+        "## Secondary diagnostics (excluded from pass/fail)",
+        "_Pre-registration amendment 2026-10-02. Trades are removed from the existing book "
+        "(freed slots are not re-allocated); default variant, rupee-rounded net._",
+        _md(sd),
+    ]
+    if drift_report and Path(drift_report).exists():
+        (out / "factor_drift.csv").write_bytes(Path(drift_report).read_bytes())
+        fd = csvio.read_csv(out / "factor_drift.csv")
+        lines += [
+            f"Factor drift (warning only): {fd.height} runs on "
+            f"{fd['symbol'].n_unique() if fd.height else 0} symbols, "
+            f"{drift_days.height} stock-days; see `factor_drift.csv`.",
+            "",
+        ]
     d = prov.get("diff_since_pin")
     if d:
         lines += [

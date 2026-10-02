@@ -267,3 +267,14 @@ def test_bhavcopy_read_across_renames(tmp_path):
         date(2026, 2, 27),
     ]
     assert set(got["symbol"]) == {"LTM"}
+
+
+def test_factor_drift_is_a_warning_not_an_exclusion(cfg):
+    from orb.data.deadjust import factor_drift
+    from orb.data.quality import excluded_stock_days
+
+    days = [date(2021, 9, d) for d in range(1, 11)]
+    f = _factors([("IRCTC", d, 5.02 if d.day in (4, 5) else 5.0) for d in days])
+    issues, _ = factor_drift(f, ACTIONS, cfg.data.deadjust_drift_tolerance)
+    assert set(issues["severity"]) == {"warn"}
+    assert excluded_stock_days(issues).height == 0
