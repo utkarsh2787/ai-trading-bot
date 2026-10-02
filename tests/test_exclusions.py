@@ -5,7 +5,6 @@ import pytest
 
 from orb.data.exclusions import exclusion_report, exclusion_table, universe_days
 from orb.data.reference import ReferenceData, load_table
-from orb.regimes import vix_terciles
 
 D1, D2, D3 = date(2024, 1, 1), date(2024, 1, 2), date(2025, 1, 1)
 
@@ -65,17 +64,6 @@ def test_exclusion_table_and_report(tmp_path):
         (pl.col("vix_tercile") == "high") & (pl.col("reason") == "ALL")
     )
     assert hv["stock_days"][0] == 2 and hv["universe_days"][0] == 3
-
-
-def test_vix_terciles_use_prev_close_and_in_sample_cuts():
-    days = [date(2020, 1, d) for d in range(1, 11)]
-    vix = pl.DataFrame({"date": days, "close": [float(x) for x in range(10, 20)]})
-    t = vix_terciles(vix, date(2020, 1, 1), date(2020, 1, 7))
-    assert t["vix_prev_close"][0] is None and t["vix_tercile"][0] is None
-    assert t["vix_prev_close"][1] == 10.0
-    # in-sample prev closes 10..15 -> cuts at 11.67 / 13.33; OOS 16..18 -> high
-    assert t.filter(pl.col("date") >= date(2020, 1, 8))["vix_tercile"].to_list() == ["high"] * 3
-    assert t["vix_tercile"][1] == "low"
 
 
 def test_survivorship_gap_by_year_and_header():

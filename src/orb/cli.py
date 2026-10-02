@@ -243,8 +243,7 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     excl = exclusion_table(issues, ref, cfg.reference.excluding_action_types, universe)
     vix = vix_terciles(
         raw.read_daily(cfg.data.index.vix, cfg.data.daily_history_start, end),
-        cfg.run.start_date,
-        cfg.run.oos_start,
+        cfg.validation.vix_min_history,
     )
     excl.write_parquet(out / "exclusions.parquet")
     minute_days = pl.DataFrame(

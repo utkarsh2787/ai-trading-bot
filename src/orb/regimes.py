@@ -4,33 +4,42 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import polars as pl
 
 TERCILES = ["low", "mid", "high"]
 
 
-def vix_terciles(
-    vix_daily: pl.DataFrame, in_sample_start: date, in_sample_end: date
-) -> pl.DataFrame:
-    """(date, vix_prev_close, vix_tercile) for every VIX trading day.
+def vix_terciles(vix_daily: pl.DataFrame, min_history: int) -> pl.DataFrame:
+    """(date, vix_prev_close, q1, q2, vix_tercile) for every VIX trading day.
 
-    Uses the PREVIOUS day's India VIX close (known before the open). Cut points
-    are the 1/3 and 2/3 quantiles over the in-sample period only, so OOS days
-    are bucketed with in-sample thresholds.
+    Causal: on day d the tagged value is the PREVIOUS day's India VIX close, and
+    the tercile cut points (1/3 and 2/3 quantiles) are taken over every close up
+    to and including that previous day (expanding window, never future data).
+    Days with fewer than ``min_history`` prior closes are untagged (null).
     """
-    v = vix_daily.sort("date").select("date", vix_prev_close=pl.col("close").shift(1))
-    ins = v.filter(pl.col("date").is_between(in_sample_start, in_sample_end))[
-        "vix_prev_close"
-    ].drop_nulls()
-    if ins.len() == 0:
-        return v.with_columns(vix_tercile=pl.lit(None, pl.String))
-    q1, q2 = ins.quantile(1 / 3, "linear"), ins.quantile(2 / 3, "linear")
-    return v.with_columns(
-        vix_tercile=pl.when(pl.col("vix_prev_close").is_null())
+    v = vix_daily.sort("date")
+    closes = v["close"].to_numpy().astype(float)
+    n = closes.size
+    prev = np.full(n, np.nan)
+    q1 = np.full(n, np.nan)
+    q2 = np.full(n, np.nan)
+    for i in range(1, n):
+        hist = closes[:i]  # closes up to d-1
+        prev[i] = closes[i - 1]
+        if hist.size >= min_history:
+            q1[i], q2[i] = np.quantile(hist, [1 / 3, 2 / 3])
+    out = (
+        v.select("date")
+        .with_columns(vix_prev_close=pl.Series(prev), q1=pl.Series(q1), q2=pl.Series(q2))
+        .with_columns(pl.col("vix_prev_close", "q1", "q2").fill_nan(None))
+    )
+    return out.with_columns(
+        vix_tercile=pl.when(pl.col("q1").is_null())
         .then(None)
-        .when(pl.col("vix_prev_close") <= q1)
+        .when(pl.col("vix_prev_close") <= pl.col("q1"))
         .then(pl.lit("low"))
-        .when(pl.col("vix_prev_close") <= q2)
+        .when(pl.col("vix_prev_close") <= pl.col("q2"))
         .then(pl.lit("mid"))
         .otherwise(pl.lit("high"))
     )

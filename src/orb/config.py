@@ -377,7 +377,8 @@ class DQConfig(_Model):
 
 class ValidationConfig(_Model):
     null_bootstrap: int = Field(gt=0)
-    vix_terciles_from: Literal["in_sample"]
+    vix_terciles_from: Literal["expanding"]  # past data only, up to the previous day
+    vix_min_history: int = Field(gt=0)
     trend_day_threshold: float = Field(gt=0, lt=1)
     results_window_sessions: int = Field(ge=0)
     expiry_types: list[str]

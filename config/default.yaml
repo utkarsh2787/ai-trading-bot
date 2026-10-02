@@ -138,7 +138,8 @@ dq:
 
 validation:
   null_bootstrap: 2000
-  vix_terciles_from: in_sample
+  vix_terciles_from: expanding   # cut points from closes up to the previous day only
+  vix_min_history: 250          # sessions of VIX history before tagging
   trend_day_threshold: 0.5
   results_window_sessions: 3
   expiry_types: [index_weekly, index_monthly, stock_monthly]
