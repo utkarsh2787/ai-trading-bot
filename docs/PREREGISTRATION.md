@@ -8,7 +8,7 @@ against what is written here.
 | | |
 |---|---|
 | Spec version | **V1** (the original spec plus `docs/DECISIONS.md` items 1–57) |
-| Code commit | `8577adff375d398451b51d475e19db602fa4368a` |
+| Code commit | `c3e9f3d2b8f0bd8217fcde07f1bbf65aef8e6912` (re-pinned 2026-10-02; originally `8577adf`, see Amendments) |
 | Config hash | `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b` (`config/default.yaml` + tick and cost tables, including the `prereg` thresholds) |
 | In-sample period | 2018-01-01 to 2024-09-30 |
 | OOS start | 2024-10-01 (OOS end: the last date of the frozen data snapshot, at most 2026-09-30) |
@@ -86,4 +86,19 @@ config hash above.
   and OOS.
 - No config value changed. The config hash stays
   `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
+
+### 2026-10-02: code commit re-pinned (still before any real-data run)
+
+- **Code commit is now `c3e9f3d2b8f0bd8217fcde07f1bbf65aef8e6912`** (it replaces `8577adf`). Commits in between:
+  - merger candidate pre-fill and Nifty 200 exit dates (reference tooling);
+  - the daily Nifty 200 count check;
+  - Kite login, `download --plan` and coverage (download tooling);
+  - special-session detection, and weekend bhavcopies;
+  - **one change that affects computed results:** daily bars on excluded
+    whole-market days (Muhurat, DR or mock sessions) no longer feed the
+    ATR14 history (decision 59).
+- No criterion, threshold or config value changed; the config hash is still
+  `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
+- Before the first in-sample run, the run's `meta.json` git commit must equal
+  this commit, or a later one recorded here with the same kind of note.
 
