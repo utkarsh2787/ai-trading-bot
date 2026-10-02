@@ -77,3 +77,9 @@ def test_local_download_then_dq(tmp_path, capsys):
     assert row["stock_days"] == 1 and row["universe_days"] == 3
     assert (dq / "exclusions_by_year.csv").exists()
     assert (dq / "exclusions_by_vix_tercile.csv").exists()
+
+    main(["--config", cfg_path, "scan", "--start", "2018-01-01", "--end", "2018-01-03"])
+    cands = pl.read_parquet(tmp_path / "data" / "_scan" / "candidates.parquet")
+    # only 3 minute sessions exist: any breakout must be rejected for history, never traded
+    assert set(cands["decision"].to_list()) <= {"REJECTED"}
+    assert all(r.startswith("INSUFFICIENT_HISTORY") for r in cands["reason"].to_list())

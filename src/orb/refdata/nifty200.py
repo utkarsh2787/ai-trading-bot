@@ -54,7 +54,9 @@ def _parse_date(s: str) -> date | None:
 
 
 def _norm(name: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"(?i)nifty\s*", "nifty ", name)).strip().lower()
+    """'NIFTY 200 Index' / 'Nifty200' / 'Nifty 200' -> 'nifty 200'."""
+    n = re.sub(r"\s+", " ", re.sub(r"(?i)nifty\s*", "nifty ", name)).strip().lower()
+    return re.sub(r"\s+index$", "", n)
 
 
 # ---------------------------------------------------------------- press list
@@ -95,6 +97,7 @@ class ParsedRelease:
     removes: list[str] = field(default_factory=list)
     method: str = ""
     mentions_index: bool = False
+    spinoff: bool = False  # demerger-related: temporary inclusion/exclusion of a spun-off entity
 
     @property
     def needs_review(self) -> bool:
@@ -148,7 +151,11 @@ def parse_release(text: str) -> ParsedRelease:
     decided = re.search(r"(?i)has decided", text)
     m = _EFFECTIVE.search(text, decided.start() if decided else 0) or _EFFECTIVE.search(text)
     eff = _parse_date(m.group(1)) if m else None
-    out = ParsedRelease(effective_date=eff, mentions_index=mentions_index(text))
+    out = ParsedRelease(
+        effective_date=eff,
+        mentions_index=mentions_index(text),
+        spinoff=bool(re.search(r"(?i)demerg|spun[- ]?off|spin[- ]?off", text)),
+    )
     for method, fn in (("section", _section_changes), ("single_exclusion", _single_exclusion)):
         res = fn(text)
         if res:
@@ -159,6 +166,27 @@ def parse_release(text: str) -> ParsedRelease:
 
 
 # ----------------------------------------------------------- reconstruction
+
+
+def classify_release(title: str, parsed: ParsedRelease) -> str:
+    """'changes' | 'ignore' | 'review'.
+
+    Spin-offs: Nifty adds the demerged entity temporarily (often before it even
+    lists) and excludes it days later. Both steps are treated as non-events, so
+    'Corporate (Action) Adjustment' releases and single exclusions of a spun-off
+    entity are ignored, unless the title also announces replacements.
+    """
+    t = title.lower()
+    if "launch" in t and not (parsed.adds or parsed.removes):
+        return "ignore"  # a new index built on Nifty 200, no constituent change
+    corp_adj = t.startswith("corporate adjustment") or t.startswith("corporate action adjustment")
+    if corp_adj and "replacement" not in t:
+        return "ignore"
+    if parsed.method == "single_exclusion" and parsed.spinoff:
+        return "ignore"
+    if parsed.needs_review:
+        return "review"
+    return "changes" if (parsed.adds or parsed.removes) else "ignore"
 
 
 @dataclass

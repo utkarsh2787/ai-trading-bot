@@ -315,3 +315,35 @@ def test_cached_fetcher_resumes_and_caches_404(tmp_path):
     assert again.get("https://x/a.csv") == b"data"
     assert again.get("https://x/missing.csv") is None
     assert again.inner.calls == []
+
+
+def test_old_heading_with_index_suffix():
+    text = (
+        "These changes shall become effective from June 29, 2018.\n"
+        "6) NIFTY 200 Index\n\nThe following companies are being excluded:\n"
+        "Sr. No. Company Name Symbol\n1 Arvind Ltd. ARVIND\n2 Tata Communications Ltd. TATACOMM\n"
+        "The following companies are being included:\nSr. No. Company Name Symbol\n"
+        "1 Future Retail Ltd. FRETAIL\n2 Quess Corp Ltd. QUESS\n\n"
+        "7) NIFTY LargeMidcap 250 Index\nThe following companies are being excluded:\n"
+        "1 Something Ltd. OTHER\n"
+    )
+    r = nifty200.parse_release(text)
+    assert r.removes == ["ARVIND", "TATACOMM"] and r.adds == ["FRETAIL", "QUESS"]
+    assert r.effective_date == date(2018, 6, 29)
+
+
+def test_spinoff_releases_are_non_events():
+    jio = nifty200.parse_release((FIX / "prs_05092023.txt").read_text())
+    assert jio.spinoff
+    assert nifty200.classify_release("Exclusion of Jio Financial Services Limited", jio) == "ignore"
+    adj = nifty200.ParsedRelease(effective_date=date(2025, 10, 14), mentions_index=True)
+    assert nifty200.classify_release("Corporate Adjustment for Tata Motors Ltd.", adj) == "ignore"
+    assert (
+        nifty200.classify_release(
+            "Corporate Adjustment for Vedanta Ltd. and Replacement in Nifty Indices", adj
+        )
+        == "review"
+    )
+    assert nifty200.classify_release("NSE Indices launches Nifty200 Value 30", adj) == "ignore"
+    semi = nifty200.parse_release((FIX / "prs_21022025_excerpt.txt").read_text())
+    assert nifty200.classify_release("Replacements in indices", semi) == "changes"

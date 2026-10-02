@@ -4,6 +4,7 @@ orb ref {symbols,nifty200,bhavcopy,ca,ban,all}   reference data from NSE / nifty
 orb download                                     vendor bars -> data/vendor/<provider>
 orb build-raw                                    vendor -> data/raw (de-adjusted)
 orb dq                                           checks + exclusion report on data/raw
+orb scan                                         first-breakout candidates (OOS needs --oos)
 """
 
 from __future__ import annotations
@@ -158,14 +159,15 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     special = set(ref.special_sessions["date"].to_list())
     indices = set(index_symbols(cfg))
     start, end = cfg.data.minute_history_start, cfg.run.end_date
-    parts = []
-    for symbol in args.symbols or raw.symbols("minute"):
+    parts, daily_parts = [], []
+    symbols = args.symbols or sorted(set(raw.symbols("minute")) | set(raw.symbols("daily")))
+    for symbol in symbols:
         is_index = symbol in indices
         minute = raw.read_minute(symbol, start, end)
         daily = raw.read_daily(symbol, cfg.data.daily_history_start, end)
+        daily_parts.append(check_daily(daily, ref.corporate_actions, cfg.dq, is_index))
         parts += [
             check_minute(minute, cfg.dq, cfg.session, is_index, special),
-            check_daily(daily, ref.corporate_actions, cfg.dq, is_index),
             reconcile_daily_minute(daily, minute, cfg.dq),
         ]
     out = Path(cfg.data.root) / "_dq"
@@ -173,7 +175,9 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     deadjust = out / "deadjust_issues.parquet"
     if deadjust.exists():
         parts.append(pl.read_parquet(deadjust))
-    issues = concat_issues(parts)
+    daily_issues = concat_issues(daily_parts)
+    daily_issues.write_parquet(out / "daily_issues.parquet")  # ATR validity uses these
+    issues = concat_issues([*parts, daily_issues])
     issues.write_parquet(out / "issues.parquet")
     excluded_stock_days(issues).write_parquet(out / "excluded_stock_days.parquet")
     print(issues.group_by("check", "severity").agg(n=pl.len()).sort("severity", "check"))
@@ -193,6 +197,27 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
         print(f"\nexcluded stock-days {name}:\n{table}")
 
 
+# --------------------------------------------------------------------- scan
+
+
+def cmd_scan(cfg: Config, args: argparse.Namespace) -> None:
+    from datetime import timedelta
+
+    from orb.scan import builder_from_disk, scan_range
+    from orb.scoring import RuleScorer
+
+    start = date.fromisoformat(args.start) if args.start else cfg.run.start_date
+    end = date.fromisoformat(args.end) if args.end else cfg.run.end_date
+    if end >= cfg.run.oos_start and not args.oos:
+        end = cfg.run.oos_start - timedelta(days=1)
+        log.info("scan capped at %s: the OOS period needs --oos", end)
+    cands = scan_range(builder_from_disk(cfg), cfg, RuleScorer(cfg.scoring), start, end)
+    out = Path(cfg.data.root) / "_scan"
+    out.mkdir(parents=True, exist_ok=True)
+    cands.write_parquet(out / "candidates.parquet")
+    print(cands.group_by("decision", "reason").agg(n=pl.len()).sort("n", descending=True))
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="orb")
     p.add_argument("--config", default="config/default.yaml")
@@ -206,12 +231,20 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("--symbols", nargs="*")
     q = sub.add_parser("dq", help="data-quality checks and exclusion report on the raw store")
     q.add_argument("--symbols", nargs="*")
+    s = sub.add_parser("scan", help="first-breakout candidates with features and scores")
+    s.add_argument("--start")
+    s.add_argument("--end")
+    s.add_argument("--oos", action="store_true", help="allow dates in the locked OOS period")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_config(args.config)
-    {"ref": cmd_ref, "download": cmd_download, "build-raw": cmd_build_raw, "dq": cmd_dq}[args.cmd](
-        cfg, args
-    )
+    {
+        "ref": cmd_ref,
+        "download": cmd_download,
+        "build-raw": cmd_build_raw,
+        "dq": cmd_dq,
+        "scan": cmd_scan,
+    }[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

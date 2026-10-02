@@ -17,18 +17,22 @@ uv run pytest
 ## Data pipeline
 
 ```bash
+uv run orb ref all             # NSE/niftyindices reference data + raw bhavcopy (resumable)
 export KITE_API_KEY=... KITE_ACCESS_TOKEN=...   # from your own daily login
-uv run orb download            # resumable; progress in data/_manifest/downloads.jsonl
-uv run orb dq                  # -> data/_dq/issues.parquet, excluded_stock_days.parquet
+uv run orb download            # Kite bars, as delivered (adjusted) -> data/vendor/kite
+uv run orb build-raw           # de-adjust against the bhavcopy -> data/raw
+uv run orb dq                  # checks + exclusion report -> data/_dq/
+uv run orb scan                # first-breakout candidates (in-sample; OOS needs --oos)
 ```
 
-Set `data.provider: local` to import vendor CSV/Parquet files instead.
+Set `data.provider: local` to import vendor CSV/Parquet files instead. See
+`docs/DATA_SOURCES.md` for what must be downloaded by hand.
 
 ## Status
 
 1. Gap list + architecture: done
 2. Config + data pipeline + DQ checks: done
-3. Features + RuleScorer + look-ahead tests: next
-4. Backtest engine
+3. Features + RuleScorer + look-ahead tests: done
+4. Backtest engine: next
 5. Signal log + labels
 6. Reports

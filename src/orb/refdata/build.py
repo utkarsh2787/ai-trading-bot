@@ -92,9 +92,10 @@ class RefBuilder:
             except Exception as exc:  # noqa: BLE001 - malformed PDFs go to review
                 review.append({**r, "reason": f"PDF text extraction failed: {exc}"})
                 continue
-            if parsed.needs_review:
+            kind = nifty200.classify_release(r["title"], parsed)
+            if kind == "review":
                 review.append({**r, "reason": "mentions Nifty 200 but no change list parsed"})
-            elif parsed.adds or parsed.removes:
+            elif kind == "changes":
                 for kind, syms in (("add", parsed.adds), ("remove", parsed.removes)):
                     changes += [
                         {

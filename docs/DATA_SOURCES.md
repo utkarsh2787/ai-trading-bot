@@ -81,8 +81,21 @@ Put these files under `data/ref/manual/`:
    for the same `(effective_date, symbol)`; `ignore` deletes a parsed row. Then
    rerun `orb ref nifty200`. Also check `data/ref/nifty200_sizes.csv`: any date
    where the index doesn't hold exactly 200 names points to a missed change.
-   The exception is a temporary spin-off inclusion, such as JIOFIN between
-   2023-07-20 and 2023-09-07.
+   Spin-offs are deliberately ignored: Nifty adds the demerged entity
+   temporarily, often under a dummy symbol before it lists, and excludes it
+   days later (JIOFIN 2023, ITC Hotels 2025, TML CV 2025, the Vedanta entities
+   2026). Both steps are treated as non-events.
+
+   **Status of the first full run (2026-10-02, 602 releases since 2017-10):**
+   373 parsed change rows from 35 releases. From 2024-03-28 onward the index
+   holds exactly 200 names on every date. Before that the count is 201–204 on
+   146 boundary dates, so some changes are missed. Fix these by hand from the
+   review list, which has 11 releases. Four of them are real Nifty 200 changes
+   that are written out in prose rather than as tables:
+   2020-03-19 (PVR via Midcap 100), 2024-03-19 (IREDA inclusion revoked),
+   2024-08-23 and 2024-09-25. The `nifty200:` warnings that `orb ref nifty200`
+   prints (for example, "add CENTRALBK but not a member after the change")
+   point to the dates where a later removal was missed.
 3. **Delisted and merged-away stocks.** `orb download` lists them as
    `delisted:` / `merged:`. Buy their 1-min history from a vendor, put one file
    per symbol in `vendor/minute/<SYMBOL>.csv` (or `.parquet`), and import with
