@@ -187,34 +187,17 @@ def regime_tables(trades: pl.DataFrame, tags: RegimeTags) -> dict[str, pl.DataFr
 # -------------------------------------------------------------------- null
 
 
-def null_test(null: pl.DataFrame, draws: int, seed: int) -> dict:
-    """Random-direction null on the primary book's taken trades.
-
-    Each trade has an actual net P&L and an opposite-side twin (same entry time,
-    same hard exit, stop mirrored at the same per-share risk, same qty). A null
-    draw picks each trade's side by a fair coin. Reports the distribution of the
-    random total, the one-sided p-value P(random >= actual), and a paired
-    bootstrap (trades resampled with replacement, sides re-drawn) of the mean
-    per-trade difference actual - random.
-    """
-    n0 = null.height
-    ok = null.filter(pl.col("twin_net_pnl").is_not_null())
-    if ok.height == 0:
-        return {"trades": n0, "usable": 0}
-    a = ok["net_pnl"].to_numpy().astype(float)
-    b = ok["twin_net_pnl"].to_numpy().astype(float)
+def _coin_null(a: np.ndarray, b: np.ndarray, draws: int, seed: int) -> dict:
+    """Each draw picks, per trade, the actual (a) or the flipped (b) outcome by a
+    fair coin. One-sided p = P(random total >= actual total); paired bootstrap
+    (trades resampled, coins re-drawn) CI of the mean per-trade difference."""
     rng = np.random.default_rng(seed)
     n = a.size
-    coin = rng.random((draws, n)) < 0.5
-    totals = np.where(coin, a, b).sum(axis=1)
+    totals = np.where(rng.random((draws, n)) < 0.5, a, b).sum(axis=1)
     idx = rng.integers(0, n, (draws, n))
-    coin2 = rng.random((draws, n)) < 0.5
-    diffs = (a[idx] - np.where(coin2, a[idx], b[idx])).mean(axis=1)
+    diffs = (a[idx] - np.where(rng.random((draws, n)) < 0.5, a[idx], b[idx])).mean(axis=1)
     return {
-        "trades": n0,
-        "usable": n,
-        "draws": draws,
-        "seed": seed,
+        "usable": int(n),
         "actual_total": round(float(a.sum()), 2),
         "random_mean": round(float(totals.mean()), 2),
         "random_p05": round(float(np.quantile(totals, 0.05)), 2),
@@ -226,6 +209,26 @@ def null_test(null: pl.DataFrame, draws: int, seed: int) -> dict:
             round(float(np.quantile(diffs, 0.975)), 4),
         ],
     }
+
+
+def null_test(null: pl.DataFrame, draws: int, seed: int) -> dict:
+    """Random-direction null on the primary book's taken trades (decision 55).
+
+    Primary (used for pre-registered criterion c): each trade vs its twin with only
+    the direction flipped: same entry candle, same qty, same rupee costs, stop
+    mirrored at the same per-share distance, same exit rules. Secondary (reported
+    only): strict sign flip at the actual exit time (-gross - costs)."""
+    out: dict = {"trades": null.height, "draws": draws, "seed": seed}
+    ok = null.filter(pl.col("twin_net_pnl").is_not_null())
+    if ok.height == 0:
+        return {**out, "usable": 0}
+    a = ok["net_pnl"].to_numpy().astype(float)
+    out.update(_coin_null(a, ok["twin_net_pnl"].to_numpy().astype(float), draws, seed))
+    out["same_exit_time_share"] = round(float(ok["same_exit_time"].mean()), 4)
+    out["secondary_sign_flip"] = _coin_null(
+        a, ok["flip_net_pnl"].to_numpy().astype(float), draws, seed + 1
+    )
+    return out
 
 
 # ----------------------------------------------------------- score validity

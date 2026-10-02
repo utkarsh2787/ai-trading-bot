@@ -167,3 +167,24 @@ def test_build_report_end_to_end(run, cfg):
     ):
         assert (rep / f).exists(), f
     assert json.loads((rep / "null.json").read_text())["usable"] == 3
+
+
+def test_null_twin_flips_only_direction(run):
+    """Same qty, same costs, same entry candle, stop mirrored at the same distance;
+    the exit time matches whenever neither stop is hit (B: both hold to 15:10)."""
+    res, _ = run
+    for r in res.null.to_dicts():
+        assert r["twin_side"] != r["side"] and r["twin_status"] == "OK"
+        assert r["twin_qty"] == r["qty"]
+        assert r["twin_costs"] == pytest.approx(r["costs"])
+        assert r["twin_net_pnl"] == pytest.approx(r["twin_gross_pnl"] - r["costs"])
+        assert r["twin_entry_slot"] == r["entry_slot"]
+        assert r["twin_risk_per_share"] == pytest.approx(r["risk_per_share"])
+        assert r["flip_net_pnl"] == pytest.approx(-r["gross_pnl"] - r["costs"])
+    b = res.null.filter(pl.col("symbol") == "B").row(0, named=True)
+    assert b["same_exit_time"] and b["twin_exit_slot"] == b["exit_slot"] == 355
+    a = res.null.filter(pl.col("symbol") == "A").row(0, named=True)
+    assert not a["same_exit_time"]  # A stopped at 12:35; its mirrored twin held to 15:10
+    nt = reports.null_test(res.null, 500, 1)
+    assert nt["same_exit_time_share"] == pytest.approx(1 / 3, abs=1e-4)
+    assert nt["secondary_sign_flip"]["usable"] == 3

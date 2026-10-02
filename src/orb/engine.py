@@ -168,9 +168,14 @@ class Engine:
         )
 
     def _null_day(self, inputs: DayInputs, booked: pl.DataFrame) -> list[dict]:
-        """Null test twins for the primary book's taken trades: the opposite side at
-        the same entry time, stop mirrored at the same per-share risk, same qty and
-        the same hard exit. Each row carries both the actual and the twin net P&L."""
+        """Random-direction twins for the primary book's taken trades.
+
+        Twin = the same trade with only the direction flipped: same entry candle,
+        same qty, the SAME rupee costs, stop mirrored at the same per-share distance
+        from its entry fill, and the same exit rules (that stop, else 15:10). The
+        exit time therefore matches the actual trade unless one of the two stops
+        is hit (``same_exit_time`` records it). ``flip_net_pnl`` is the secondary
+        strict sign-flip null at the actual exit time: -gross - costs."""
         bars = {sd.symbol: sd.bars for sd in inputs.stocks}
         prim = booked.filter(
             (pl.col("variant") == "default")
@@ -193,16 +198,31 @@ class Engine:
                 stop_risk_override=t["risk_per_share"],
                 qty_override=t["qty"],
             )
+            ok = tw.status == "OK" and tw.gross_pnl is not None
             rows.append(
                 {
                     "date": inputs.day,
                     "symbol": t["symbol"],
                     "side": t["side"],
+                    "qty": t["qty"],
+                    "entry_slot": t["entry_slot"],
+                    "exit_slot": t["exit_slot"],
+                    "risk_per_share": t["risk_per_share"],
+                    "gross_pnl": t["gross_pnl"],
+                    "costs": t["costs"],
                     "net_pnl": t["net_pnl"],
                     "twin_side": opp,
                     "twin_status": tw.status,
-                    "twin_net_pnl": tw.net_pnl,
+                    "twin_qty": tw.qty,
+                    "twin_entry_slot": tw.entry_slot,
+                    "twin_exit_slot": tw.exit_slot,
+                    "twin_risk_per_share": tw.risk_per_share,
                     "twin_exit_reason": tw.exit_reason,
+                    "twin_gross_pnl": tw.gross_pnl,
+                    "twin_costs": t["costs"] if ok else None,
+                    "twin_net_pnl": (tw.gross_pnl - t["costs"]) if ok else None,
+                    "same_exit_time": ok and tw.exit_slot == t["exit_slot"],
+                    "flip_net_pnl": -t["gross_pnl"] - t["costs"],
                 }
             )
         return rows
