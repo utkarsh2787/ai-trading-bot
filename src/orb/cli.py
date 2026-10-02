@@ -106,6 +106,21 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
             b.expiries(cfg.data.minute_history_start, end)
         elif step == "results":
             b.results_dates(cfg.data.minute_history_start, end)
+        elif step == "fno":
+            from orb.refdata.fno import samples_from_cache
+
+            ref_root = Path(cfg.reference.root)
+            sm = csvio.read_csv(ref_root / cfg.reference.symbol_map, try_parse_dates=True)
+            fno = samples_from_cache(
+                ref_root / "_cache" / "fo_bhavcopy", sm.filter(pl.col("change_type") == "rename")
+            )
+            csvio.write_csv(fno, ref_root / "fno_stocks.csv")
+            log.info(
+                "fno: %d weekly samples, %d symbols -> %s (cache only, no download)",
+                fno["sample_date"].n_unique(),
+                fno["symbol"].n_unique(),
+                ref_root / "fno_stocks.csv",
+            )
 
 
 # ----------------------------------------------------------------- download
@@ -470,6 +485,7 @@ def main(argv: list[str] | None = None) -> None:
             "expiries",
             "results",
             "mergers",
+            "fno",
             "all",
         ],
     )
