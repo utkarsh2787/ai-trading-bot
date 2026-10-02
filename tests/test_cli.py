@@ -121,3 +121,7 @@ def test_local_download_then_dq(tmp_path, capsys):
     assert meta["vendor_snapshot_id"] == snap.id and meta["config_hash"]
     assert meta["survivorship_gap"].startswith("survivorship gap: 0.00%")
     assert (run / "summary.txt").read_text().startswith("survivorship gap:")
+
+    main(["--config", cfg_path, "report", str(run)])
+    md = (run / "report" / "report.md").read_text()
+    assert md.splitlines()[0].startswith("survivorship gap:")

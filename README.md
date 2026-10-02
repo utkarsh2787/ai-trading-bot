@@ -23,6 +23,8 @@ uv run orb download            # Kite bars, as delivered (adjusted) -> data/vend
 uv run orb build-raw           # de-adjust against the bhavcopy -> data/raw
 uv run orb dq                  # checks + exclusion report -> data/_dq/
 uv run orb scan                # first-breakout candidates (in-sample; OOS needs --oos)
+uv run orb backtest            # engine run -> runs/<id>/ (OOS locked behind --oos, run once)
+uv run orb report runs/<id>    # trade/signal logs, summary, regimes, null, score validity
 ```
 
 Set `data.provider: local` to import vendor CSV/Parquet files instead. See
@@ -35,4 +37,4 @@ Set `data.provider: local` to import vendor CSV/Parquet files instead. See
 3. Features + RuleScorer + look-ahead tests: done
 4. Backtest engine: done
 5. Signal log + labels: done
-6. Reports: next
+6. Reports: done

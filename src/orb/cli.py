@@ -282,6 +282,14 @@ def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
     print(f"run written to {out}")
 
 
+def cmd_report(cfg: Config, args: argparse.Namespace) -> None:
+    from orb.reports import build_report, tags_from_disk
+
+    out = build_report(args.run_dir, cfg, tags_from_disk(cfg))
+    print((out / "report.md").read_text().splitlines()[0])
+    print(f"report written to {out}")
+
+
 # --------------------------------------------------------------------- scan
 
 
@@ -342,6 +350,8 @@ def main(argv: list[str] | None = None) -> None:
     bt.add_argument("--out", default="runs")
     bt.add_argument("--oos", action="store_true", help="run the locked OOS period (once)")
     bt.add_argument("--force-oos-reason", help="rerun OOS anyway; the reason is logged")
+    rp = sub.add_parser("report", help="build the report for a run folder")
+    rp.add_argument("run_dir")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_config(args.config)
@@ -353,6 +363,7 @@ def main(argv: list[str] | None = None) -> None:
         "dq": cmd_dq,
         "scan": cmd_scan,
         "backtest": cmd_backtest,
+        "report": cmd_report,
     }[args.cmd](cfg, args)
 
 

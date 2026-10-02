@@ -111,7 +111,12 @@ def simulate(
     cfg: Config,
     variant: str = "default",
     slippage_mult: float = 1.0,
+    stop_risk_override: float | None = None,
+    qty_override: int | None = None,
 ) -> TradeResult:
+    """``stop_risk_override``: place the stop this many rupees from the entry fill
+    instead of at the opposite OR boundary (null test: mirrored stop).
+    ``qty_override``: use this quantity instead of score-based sizing."""
     s: SessionConfig = cfg.session
     base = {"variant": variant, "slippage_mult": slippage_mult}
     if tick is None:
@@ -130,7 +135,10 @@ def simulate(
         flags.append("ENTRY_DELAYED")
     entry_raw = float(a.open[e])
     entry = _fill(entry_raw, buy, tick, cfg, slippage_mult)
-    stop = or_l if long else or_h
+    if stop_risk_override is not None:
+        stop = entry - stop_risk_override if long else entry + stop_risk_override
+    else:
+        stop = or_l if long else or_h
     risk = (entry - stop) if long else (stop - entry)
     common = dict(entry_slot=e, entry_raw=entry_raw, entry_price=entry, stop=stop, **base)
     if risk <= 0:
@@ -181,7 +189,7 @@ def simulate(
         hold_minutes=exit_slot - e,
         **common,
     )
-    qty = size(entry, risk, score, cfg)
+    qty = qty_override if qty_override is not None else size(entry, risk, score, cfg)
     if qty is None or qty < 1:
         return TradeResult(OK, qty=qty, **out)
     slip_paid = qty * (abs(entry - entry_raw) + abs(exit_price - float(exit_raw)))

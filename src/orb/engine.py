@@ -46,6 +46,7 @@ class RunResult:
     sims: pl.DataFrame  # signal key x variant x slippage_mult
     book: pl.DataFrame  # sims + book_decision / book_reason + rounded costs
     coverage: pl.DataFrame  # date, members, no_data
+    null: pl.DataFrame = field(default_factory=pl.DataFrame)  # opposite-side twins
     meta: dict = field(default_factory=dict)
 
     def survivorship_gap(self) -> pl.DataFrame:
@@ -166,6 +167,46 @@ class Engine:
             .with_columns(net_pnl_rounded=pl.col("gross_pnl") - pl.col("costs_rounded"))
         )
 
+    def _null_day(self, inputs: DayInputs, booked: pl.DataFrame) -> list[dict]:
+        """Null test twins for the primary book's taken trades: the opposite side at
+        the same entry time, stop mirrored at the same per-share risk, same qty and
+        the same hard exit. Each row carries both the actual and the twin net P&L."""
+        bars = {sd.symbol: sd.bars for sd in inputs.stocks}
+        prim = booked.filter(
+            (pl.col("variant") == "default")
+            & (pl.col("slippage_mult") == 1.0)
+            & (pl.col("book_decision") == TAKEN)
+        )
+        rows = []
+        for t in prim.to_dicts():
+            opp = "short" if t["side"] == "long" else "long"
+            tw = simulate(
+                bars[t["symbol"]],
+                inputs.day,
+                t["signal_slot"],
+                opp,
+                t["stop"],
+                t["stop"],
+                None,
+                self.ticks.get((t["symbol"], inputs.day)),
+                self.cfg,
+                stop_risk_override=t["risk_per_share"],
+                qty_override=t["qty"],
+            )
+            rows.append(
+                {
+                    "date": inputs.day,
+                    "symbol": t["symbol"],
+                    "side": t["side"],
+                    "net_pnl": t["net_pnl"],
+                    "twin_side": opp,
+                    "twin_status": tw.status,
+                    "twin_net_pnl": tw.net_pnl,
+                    "twin_exit_reason": tw.exit_reason,
+                }
+            )
+        return rows
+
     # ---------------------------------------------------------------- run
     def run(
         self,
@@ -178,7 +219,7 @@ class Engine:
         ledger = ledger or Path(self.cfg.data.root) / "_runs" / "oos_ledger.jsonl"
         start, end = _check_oos(self.cfg, start, end, oos, ledger, force_reason)
         days = [d for d in self.builder.calendar if start <= d <= end]
-        sig_parts, sim_rows, book_parts, cov = [], [], [], []
+        sig_parts, sim_rows, book_parts, cov, null_rows = [], [], [], [], []
         for d in days:
             inputs = self.builder.day(d)
             cov.append(
@@ -195,7 +236,9 @@ class Engine:
             sims = pl.DataFrame(rows, infer_schema_length=None)
             sig_parts.append(signals)
             sim_rows += rows
-            book_parts.append(self._book_day(signals, sims))
+            booked = self._book_day(signals, sims)
+            book_parts.append(booked)
+            null_rows += self._null_day(inputs, booked)
         signals = pl.concat(sig_parts) if sig_parts else pl.DataFrame(schema=CANDIDATE_SCHEMA)
         sims = pl.DataFrame(sim_rows, infer_schema_length=None) if sim_rows else pl.DataFrame()
         book = pl.concat(book_parts, how="diagonal") if book_parts else pl.DataFrame()
@@ -204,7 +247,14 @@ class Engine:
             sims,
             book,
             pl.DataFrame(cov, schema={"date": pl.Date, "members": pl.Int64, "no_data": pl.Int64}),
+            pl.DataFrame(null_rows, infer_schema_length=None),
         )
+        res.meta = {
+            "start": start,
+            "end": end,
+            "oos": end >= self.cfg.run.oos_start,
+            "scorer": self.scorer.name,
+        }
         if end >= self.cfg.run.oos_start:
             _record_oos(
                 ledger,
@@ -247,6 +297,8 @@ def write_run(res: RunResult, cfg: Config, out_root: str | Path, meta: dict) -> 
     res.signals.write_parquet(d / "signals.parquet")
     res.sims.write_parquet(d / "sims.parquet")
     res.book.write_parquet(d / "book.parquet")
+    res.null.write_parquet(d / "null.parquet")
+    res.coverage.write_parquet(d / "coverage.parquet")
     res.survivorship_gap().write_csv(d / "survivorship_gap.csv")
     from orb import labels as lab
 
@@ -256,7 +308,7 @@ def write_run(res: RunResult, cfg: Config, out_root: str | Path, meta: dict) -> 
     )
     lab.labels(res.signals, res.sims).write_parquet(d / "labels.parquet")
     summary = summarize(res.book)
-    meta = {**meta, "run_id": run_id, "survivorship_gap": res.header()}
+    meta = {**res.meta, **meta, "run_id": run_id, "survivorship_gap": res.header()}
     (d / "meta.json").write_text(json.dumps(meta, indent=1, sort_keys=True, default=str))
     (d / "config.json").write_text(json.dumps(cfg.model_dump(mode="json"), indent=1))
     (d / "summary.txt").write_text(f"{res.header()}\nrun {run_id}\n\n{summary}\n")
