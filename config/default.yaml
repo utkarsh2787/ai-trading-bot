@@ -145,3 +145,12 @@ validation:
   expiry_types: [index_weekly, index_monthly, stock_monthly]
   score_buckets: [65, 75, 85]
   factor_quantiles: 5
+
+prereg:                        # docs/PREREGISTRATION.md - frozen before any real-data run
+  version: V1
+  min_trades: 300              # a. taken trades (primary book, in-sample)
+  base_slippage: 1             # b. net (rupee-rounded) > 0 at 1x ...
+  stress_slippage: 2           #    ... and >= 0 at 2x
+  null_p_max: 0.05             # c. random-direction null, one-sided p < 0.05
+  min_positive_year_share: 0.60  # d. share of calendar years with net > 0
+  score_buckets: [65, 75, 85]  # e. net R per trade must rise across 65-74, 75-84, 85+

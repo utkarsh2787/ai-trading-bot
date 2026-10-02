@@ -188,3 +188,87 @@ def test_null_twin_flips_only_direction(run):
     nt = reports.null_test(res.null, 500, 1)
     assert nt["same_exit_time_share"] == pytest.approx(1 / 3, abs=1e-4)
     assert nt["secondary_sign_flip"]["usable"] == 3
+
+
+def test_report_header_lists_criteria_under_survivorship_gap(run, cfg):
+    _, out = run
+    tags = reports.RegimeTags(
+        vix=pl.DataFrame(schema={"date": pl.Date, "vix_tercile": pl.String}),
+        trend=pl.DataFrame(schema={"date": pl.Date, "trend_day": pl.Boolean}),
+        expiry=pl.DataFrame(schema={"date": pl.Date, "is_expiry": pl.Boolean}),
+        results=pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date}),
+    )
+    lines = (reports.build_report(out, cfg, tags) / "report.md").read_text().splitlines()
+    assert lines[0].startswith("survivorship gap:")
+    assert [ln[:9] for ln in lines[1:6]] == [
+        "[FAIL] a.",
+        "[FAIL] b.",
+        lines[3][:9],
+        "[FAIL] d.",
+        "[FAIL] e.",
+    ]
+    assert lines[1].endswith(": 3")  # 3 taken trades < 300
+    assert lines[6].startswith("IN-SAMPLE GATE (V1, a-d): FAIL -> OOS run NOT allowed")
+
+
+def _synthetic(n_years=5, per_year=80, edge=5.0):
+    rows, lab = [], []
+    rng = np.random.default_rng(3)
+    for y in range(n_years):
+        for i in range(per_year):
+            d = date(2018 + y, 1 + i % 12, 1 + i % 28)
+            for mult, cost in ((1.0, 2.0), (2.0, 3.0)):
+                g = rng.normal(edge, 20)
+                rows.append(
+                    {
+                        "date": d,
+                        "symbol": f"S{i}",
+                        "variant": "default",
+                        "slippage_mult": mult,
+                        "net_pnl_rounded": g - cost,
+                        "net_pnl": g - cost,
+                    }
+                )
+    for s in np.linspace(65, 100, 300):
+        lab.append(
+            {
+                "variant": "default",
+                "decision": "QUALIFIED",
+                "score": float(s),
+                "r_net": 0.05 + 0.01 * (s - 65) / 10 + rng.normal(0, 0.001),
+            }
+        )
+    return pl.DataFrame(rows), pl.DataFrame(lab)
+
+
+def test_criteria_all_pass_and_each_can_fail(cfg):
+    trades, labels = _synthetic()
+    crit, verdict = reports.criteria(trades, {"p_value": 0.01}, labels, cfg, oos=False)
+    assert all(c.passed for c in crit), [c.line() for c in crit]
+    assert verdict == "IN-SAMPLE GATE (V1, a-d): PASS -> OOS run allowed"
+    # c fails on the null
+    crit, verdict = reports.criteria(trades, {"p_value": 0.2}, labels, cfg, oos=False)
+    assert not crit[2].passed and "NOT allowed" in verdict
+    # b fails when 2x slippage is net negative
+    t2 = trades.with_columns(
+        net_pnl_rounded=pl.when(pl.col("slippage_mult") == 2.0)
+        .then(-10.0)
+        .otherwise("net_pnl_rounded")
+    )
+    assert not reports.criteria(t2, {"p_value": 0.01}, labels, cfg, oos=False)[0][1].passed
+    # d fails when 3 of 5 years lose
+    t3 = trades.with_columns(
+        net_pnl_rounded=pl.when(pl.col("date").dt.year() <= 2020)
+        .then(-1.0)
+        .otherwise("net_pnl_rounded")
+    )
+    assert not reports.criteria(t3, {"p_value": 0.01}, labels, cfg, oos=False)[0][3].passed
+    # e fails (score not useful) without blocking the a-d gate
+    flat = labels.with_columns(r_net=pl.lit(0.05))
+    crit, verdict = reports.criteria(trades, {"p_value": 0.01}, flat, cfg, oos=False)
+    assert not crit[4].passed and "PASS -> OOS run allowed" in verdict
+    assert "plain ORB" in verdict
+    # OOS: criterion a is not part of the verdict
+    few = trades.filter(pl.col("date").dt.year() == 2018).head(40)
+    crit, verdict = reports.criteria(few, {"p_value": 0.01}, labels, cfg, oos=True)
+    assert verdict.startswith("OOS VERDICT (V1): ")

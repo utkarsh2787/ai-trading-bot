@@ -386,6 +386,16 @@ class ValidationConfig(_Model):
     factor_quantiles: int = Field(gt=1)
 
 
+class PreregConfig(_Model):
+    version: str
+    min_trades: int = Field(gt=0)
+    base_slippage: float = Field(gt=0)
+    stress_slippage: float = Field(gt=0)
+    null_p_max: float = Field(gt=0, lt=1)
+    min_positive_year_share: float = Field(gt=0, le=1)
+    score_buckets: list[float]
+
+
 # -------------------------------------------------------------------------- root
 
 
@@ -400,6 +410,7 @@ class Config(_Model):
     execution: ExecutionConfig
     dq: DQConfig
     validation: ValidationConfig
+    prereg: PreregConfig
     # Resolved from execution.tick_table / cost_table at load time so the
     # config hash covers their contents.
     ticks: TickTable

@@ -291,6 +291,128 @@ def score_validity(
     return out
 
 
+# --------------------------------------------------------- pre-registration
+
+
+@dataclass
+class Criterion:
+    key: str
+    text: str
+    value: str
+    passed: bool
+
+    def line(self) -> str:
+        return f"[{'PASS' if self.passed else 'FAIL'}] {self.key}. {self.text}: {self.value}"
+
+
+def criteria(
+    trades: pl.DataFrame, null_result: dict, labels: pl.DataFrame, cfg: Config, oos: bool
+) -> tuple[list[Criterion], str]:
+    """docs/PREREGISTRATION.md criteria on the primary entry-candle variant.
+
+    a. >= min_trades taken trades (1x)                     [in-sample gate only]
+    b. net (rupee-rounded) > 0 at 1x and >= 0 at 2x slippage
+    c. random-direction null (primary twin) p < null_p_max
+    d. net (rounded, 1x) > 0 in >= min_positive_year_share of calendar years traded
+    e. score useful: label net R per trade strictly rises across 65-74, 75-84, 85+
+       (diagnostic: if not, V1 is evaluated as plain ORB)
+    """
+    pr = cfg.prereg
+    var = PRIMARY[0]
+
+    def book(mult: float) -> pl.DataFrame:
+        if trades.height == 0:
+            return trades
+        return trades.filter((pl.col("variant") == var) & (pl.col("slippage_mult") == mult))
+
+    base, stress = book(pr.base_slippage), book(pr.stress_slippage)
+
+    def net(df: pl.DataFrame) -> float:
+        return float(df["net_pnl_rounded"].cast(pl.Float64).sum()) if df.height else 0.0
+
+    out = []
+    n = base.height
+    out.append(Criterion("a", f">= {pr.min_trades} taken trades", str(n), n >= pr.min_trades))
+    nb, ns = net(base), net(stress)
+    out.append(
+        Criterion(
+            "b",
+            f"net P&L (rupee-rounded) > 0 at {pr.base_slippage:g}x and >= 0 at "
+            f"{pr.stress_slippage:g}x slippage",
+            f"{nb:.2f} / {ns:.2f}",
+            n > 0 and nb > 0 and stress.height > 0 and ns >= 0,
+        )
+    )
+    p = null_result.get("p_value")
+    out.append(
+        Criterion(
+            "c",
+            f"beats random-direction null at p < {pr.null_p_max:g}",
+            "n/a" if p is None else f"p = {p:.4f}",
+            p is not None and p < pr.null_p_max,
+        )
+    )
+    if n:
+        yearly = base.group_by(pl.col("date").dt.year().alias("y")).agg(
+            pl.col("net_pnl_rounded").cast(pl.Float64).sum().alias("net")
+        )
+        pos, yrs = int((yearly["net"] > 0).sum()), yearly.height
+    else:
+        pos, yrs = 0, 0
+    share = pos / yrs if yrs else 0.0
+    out.append(
+        Criterion(
+            "d",
+            f"net positive in >= {pr.min_positive_year_share:.0%} of calendar years",
+            f"{pos}/{yrs} ({share:.0%})",
+            yrs > 0 and share >= pr.min_positive_year_share,
+        )
+    )
+    edges = pr.score_buckets
+    lb = (
+        labels.filter(
+            (pl.col("variant") == var)
+            & (pl.col("decision") != "EXCLUDED")
+            & (pl.col("score") >= edges[0])
+        )
+        if labels.height
+        else labels
+    )
+    means = []
+    for lo, hi in zip(edges, [*edges[1:], float("inf")], strict=True):
+        g = (
+            lb.filter((pl.col("score") >= lo) & (pl.col("score") < hi))["r_net"]
+            if lb.height
+            else pl.Series([], dtype=pl.Float64)
+        )
+        g = g.cast(pl.Float64).drop_nulls()
+        means.append(float(g.mean()) if g.len() else None)
+    rising = all(m is not None for m in means) and all(
+        b - a > 1e-9 for a, b in zip(means, means[1:], strict=False)
+    )
+    shown = " < ".join("n/a" if m is None else f"{m:.3f}" for m in means)
+    out.append(
+        Criterion(
+            "e",
+            "score useful: net R per trade rises across 65-74, 75-84, 85+ (else V1 = plain ORB)",
+            shown,
+            rising,
+        )
+    )
+    gate = [c for c in out if c.key in ("b", "c", "d")] + ([] if oos else [out[0]])
+    ok = all(c.passed for c in gate)
+    if oos:
+        verdict = f"OOS VERDICT ({pr.version}): {'PASS' if ok else 'FAIL'} on b-d"
+    else:
+        verdict = (
+            f"IN-SAMPLE GATE ({pr.version}, a-d): {'PASS' if ok else 'FAIL'}"
+            f" -> OOS run {'allowed' if ok else 'NOT allowed'}"
+        )
+    if not rising:
+        verdict += "; score not shown useful -> evaluate V1 as plain ORB"
+    return out, verdict
+
+
 # ------------------------------------------------------------------ report
 
 
@@ -344,10 +466,16 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     for k, v in sv.items():
         v.write_csv(out / f"{k}.csv")
 
+    crit, verdict = criteria(trades, nt, labels, cfg, bool(meta.get("oos")))
+    (out / "criteria.json").write_text(
+        json.dumps({"verdict": verdict, "criteria": [c.__dict__ for c in crit]}, indent=1)
+    )
     git = meta.get("git", {})
     sample = "OUT-OF-SAMPLE" if meta.get("oos") else "in-sample"
     lines = [
         meta.get("survivorship_gap", "survivorship gap: n/a"),
+        *[c.line() for c in crit],
+        verdict,
         "",
         f"# ORB backtest report: run {meta.get('run_id')}",
         "",
