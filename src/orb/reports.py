@@ -190,7 +190,40 @@ def regime_tables(trades: pl.DataFrame, tags: RegimeTags) -> dict[str, pl.DataFr
     }
     for c in exp_cols:
         out[c.removeprefix("is_")] = _stats(t, [c]).sort(c)
+    if "side" in t.columns:  # long vs short first
+        out = {"side": _stats(t, ["side"]).sort("side"), **out}
     return out
+
+
+def capital_model(trades: pl.DataFrame, capital: float) -> dict:
+    """V1 capital model, stated in report.md. Every day starts with ``capital``
+    (the cash ledger in invariants.py resets daily); sizing uses the fixed slot
+    size and risk cap only, never cumulative P&L. So losses never shrink later
+    positions, and the account can be "ruined" on paper while trading goes on.
+    ``ruin_date``: the first day cumulative rupee-rounded net P&L <= -capital."""
+    if trades.height == 0:
+        return {"ruin_date": None, "min_cum_net": 0.0, "final_cum_net": 0.0}
+    daily = trades.group_by("date").agg(n=pl.col("net_pnl_rounded").sum()).sort("date")
+    daily = daily.with_columns(cum=pl.col("n").cum_sum())
+    ruin = daily.filter(pl.col("cum") <= -capital)
+    return {
+        "ruin_date": ruin["date"][0] if ruin.height else None,
+        "min_cum_net": round(float(daily["cum"].min()), 2),
+        "final_cum_net": round(float(daily["cum"][-1]), 2),
+    }
+
+
+def capital_lines(trades: pl.DataFrame, capital: float) -> list[str]:
+    cm = capital_model(trades, capital)
+    ruin = cm["ruin_date"].isoformat() if cm["ruin_date"] else "never"
+    return [
+        f"capital model: Rs {capital:,.0f} at the start of EVERY day (resets daily; sizing "
+        "ignores cumulative P&L; no compounding, no ruin stop), so max drawdown can exceed "
+        "capital",
+        f"account ruin date (primary book, first day cumulative rupee-rounded net <= "
+        f"-Rs {capital:,.0f}): {ruin} (min cumulative {cm['min_cum_net']:,.2f}, final "
+        f"{cm['final_cum_net']:,.2f})",
+    ]
 
 
 # -------------------------------------------------------------------- null
@@ -571,6 +604,7 @@ def build_report(
         meta.get("survivorship_gap", "survivorship gap: n/a"),
         *[c.line() for c in crit],
         verdict,
+        *capital_lines(prim, cfg.portfolio.capital),
         *(
             []
             if meta.get("prereg_match", True)

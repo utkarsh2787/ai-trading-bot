@@ -328,3 +328,34 @@ def test_secondary_diagnostics_drift_and_post_2020(run, cfg, tmp_path):
     assert (rep / "factor_drift.csv").exists() and (rep / "secondary_diagnostics.csv").exists()
     # pass/fail lines are computed from the full book only
     assert md.splitlines()[1].startswith("[FAIL] a.") and md.splitlines()[1].endswith(": 3")
+
+
+def test_capital_model_ruin_date():
+    t = pl.DataFrame(
+        {
+            "date": [date(2020, 1, 1), date(2020, 1, 1), date(2020, 1, 2), date(2020, 1, 3)],
+            "net_pnl_rounded": [-6000.0, -3000.0, -1000.0, 4000.0],
+        }
+    )
+    cm = reports.capital_model(t, 10_000)
+    assert cm["ruin_date"] == date(2020, 1, 2)  # cumulative -10,000 reached on day 2
+    assert cm["min_cum_net"] == -10_000 and cm["final_cum_net"] == -6_000
+    assert reports.capital_model(t.head(2), 10_000)["ruin_date"] is None
+    lines = reports.capital_lines(t, 10_000)
+    assert "resets daily" in lines[0] and "2020-01-02" in lines[1]
+
+
+def test_report_has_capital_lines_and_side_table(run, cfg):
+    _, out = run
+    tags = reports.RegimeTags(
+        vix=pl.DataFrame(schema={"date": pl.Date, "vix_tercile": pl.String}),
+        trend=pl.DataFrame(schema={"date": pl.Date, "trend_day": pl.Boolean}),
+        expiry=pl.DataFrame(schema={"date": pl.Date, "is_expiry": pl.Boolean}),
+        results=pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date}),
+    )
+    rep = reports.build_report(out, cfg, tags)
+    lines = (rep / "report.md").read_text().splitlines()
+    assert lines[7].startswith("capital model: Rs 10,000 at the start of EVERY day")
+    assert lines[8].startswith("account ruin date") and ": never" in lines[8]
+    side = pl.read_csv(rep / "regime_side.csv")
+    assert side["trades"].sum() == 3
