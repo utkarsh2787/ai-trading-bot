@@ -1,0 +1,45 @@
+[project]
+name = "orb"
+version = "0.1.0"
+description = "Research backtester for an intraday NSE opening-range-breakout strategy"
+authors = [
+    { email = "utkarsh.s1@iimjobs.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.3",
+    "polars>=1.44.2",
+    "pyarrow>=25.0.1",
+    "pydantic>=2.13.5",
+    "pyyaml>=6.0.3",
+]
+
+[project.optional-dependencies]
+kite = [
+    "kiteconnect>=5.2.2",
+]
+
+[project.scripts]
+orb = "orb.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore:.*table is marked unverified:UserWarning"]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

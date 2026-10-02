@@ -1,0 +1,64 @@
+import shutil
+from datetime import date
+
+import polars as pl
+import yaml
+
+from orb.cli import main
+from orb.data.store import ParquetStore
+from orb.synthetic import daily_bars, minute_session
+from tests.conftest import ROOT
+
+DAYS = [date(2018, 1, d) for d in (1, 2, 3)]
+
+
+def test_local_download_then_dq(tmp_path, capsys):
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    for n in ("default.yaml", "tick_sizes.yaml", "costs.yaml"):
+        shutil.copy(ROOT / "config" / n, cfg_dir / n)
+    raw = yaml.safe_load((cfg_dir / "default.yaml").read_text())
+    raw["data"].update(
+        provider="local", root=str(tmp_path / "data"), minute_history_start="2017-12-01"
+    )
+    raw["data"]["local"].update(
+        root=str(tmp_path / "vendor"),
+        columns={k: k for k in ("ts", "date", "open", "high", "low", "close", "volume")},
+    )
+    raw["reference"]["root"] = str(tmp_path / "ref")
+    (cfg_dir / "default.yaml").write_text(yaml.safe_dump(raw))
+
+    ref = tmp_path / "ref"
+    ref.mkdir()
+    (ref / "nifty200_membership.csv").write_text("date,symbol\n2018-01-01,AAA\n")
+    (ref / "fo_ban.csv").write_text("date,symbol\n")
+    (ref / "corporate_actions.csv").write_text("symbol,ex_date,action_type,price_factor\n")
+    (ref / "special_sessions.csv").write_text("date,session_type\n")
+
+    vendor = tmp_path / "vendor"
+    (vendor / "minute").mkdir(parents=True)
+    (vendor / "daily").mkdir()
+    for sym in ("AAA", "NIFTY 200", "NIFTY 50", "INDIA VIX"):
+        m = pl.concat([minute_session(sym, d, seed=i) for i, d in enumerate(DAYS)])
+        if sym == "AAA":
+            m = pl.concat([m, m.head(1)])  # inject a duplicate timestamp
+        m.with_columns(pl.col("ts").dt.replace_time_zone(None)).drop("symbol").write_csv(
+            vendor / "minute" / f"{sym}.csv"
+        )
+        daily_bars(sym, date(2016, 1, 1), 520).drop("symbol").write_parquet(
+            vendor / "daily" / f"{sym}.parquet"
+        )
+
+    main(["--config", str(cfg_dir / "default.yaml"), "download"])
+    store = ParquetStore(tmp_path / "data")
+    assert store.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
+    assert store.read_minute("AAA", DAYS[0], DAYS[-1]).height == 3 * 375  # dup collapsed
+
+    # vendor duplicate is collapsed by the store; inject one at the store level to test dq
+    raw_min = pl.read_parquet(store.minute_dir("AAA") / "2018.parquet")
+    pl.concat([raw_min, raw_min.head(1)]).write_parquet(store.minute_dir("AAA") / "2018.parquet")
+
+    main(["--config", str(cfg_dir / "default.yaml"), "dq"])
+    excluded = pl.read_parquet(tmp_path / "data" / "_dq" / "excluded_stock_days.parquet")
+    assert excluded.to_dicts() == [{"symbol": "AAA", "date": DAYS[0]}]
+    assert "duplicate_timestamp" in capsys.readouterr().out

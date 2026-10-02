@@ -1,0 +1,16 @@
+# NSE equity tick sizes, date-effective. The band is chosen by the previous close.
+# UNVERIFIED: confirm effective dates and bands against the NSE circulars before
+# trusting results. The loader warns while `verified: false`.
+verified: false
+regimes:
+  - effective_from: 2000-01-01
+    bands:
+      - {min_price: 0, tick: 0.05}
+  - effective_from: 2025-04-15        # VERIFY: NSE price-band tick sizes
+    bands:
+      - {min_price: 0, tick: 0.01}
+      - {min_price: 250, tick: 0.05}
+      - {min_price: 1000, tick: 0.10}
+      - {min_price: 5000, tick: 0.50}
+      - {min_price: 10000, tick: 1.00}
+      - {min_price: 20000, tick: 5.00}

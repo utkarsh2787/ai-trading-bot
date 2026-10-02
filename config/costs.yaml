@@ -1,0 +1,13 @@
+# Zerodha intraday equity (MIS) charges, per executed order, date-effective.
+# UNVERIFIED: seeded with current rates for all dates (decision 23). Add older
+# schedules (e.g. pre-Oct-2024 exchange rate, pre-Jul-2020 stamp duty) as needed.
+verified: false
+schedules:
+  - effective_from: 2000-01-01
+    brokerage_pct: 0.0003         # 0.03% of order value
+    brokerage_cap: 20.0           # Rs per order
+    stt_sell_pct: 0.00025         # 0.025% sell side
+    exchange_txn_pct: 0.0000297   # NSE equity, 0.00297%
+    stamp_buy_pct: 0.00003        # 0.003% buy side
+    sebi_per_crore: 10.0
+    gst_pct: 0.18                 # on brokerage + exchange txn + SEBI fee

@@ -1,0 +1,127 @@
+# ORB V1 research defaults. Fixed values - NOT to be optimised.
+# See docs/DECISIONS.md for the rationale of each choice.
+
+run:
+  name: orb_v1
+  start_date: 2018-01-01        # first trade date (warm-up data is fetched before this)
+  end_date: 2026-09-30
+  oos_start: 2024-10-01         # most recent 2 years; locked behind --oos
+  seed: 20180101
+
+data:
+  root: data
+  provider: kite                # kite | local
+  daily_history_start: 2016-01-01   # fixed Wilder-ATR seed origin (decision 7)
+  minute_history_start: 2017-10-01  # >= 20 sessions of RV warm-up before run.start_date
+  index:
+    primary: NIFTY 200
+    fallback: NIFTY 50
+    vix: INDIA VIX
+  kite:
+    api_key_env: KITE_API_KEY
+    access_token_env: KITE_ACCESS_TOKEN
+    exchange: NSE
+    index_exchange: NSE
+    max_requests_per_sec: 3
+    minute_chunk_days: 60
+    day_chunk_days: 2000
+    max_retries: 5
+    backoff_base_sec: 1.0
+  local:
+    root: vendor
+    minute_glob: "minute/{symbol}.*"
+    daily_glob: "daily/{symbol}.*"
+    timezone: Asia/Kolkata
+    columns:                    # vendor column -> canonical column
+      timestamp: ts
+      date: date
+      open: open
+      high: high
+      low: low
+      close: close
+      volume: volume
+
+reference:
+  root: data/ref
+  membership: nifty200_membership.csv
+  ban_list: fo_ban.csv
+  corporate_actions: corporate_actions.csv
+  special_sessions: special_sessions.csv
+  calendar_exceptions: calendar_exceptions.csv
+  budget_days: budget_days.csv
+  symbol_map: symbol_map.csv
+  expiries: expiries.csv
+  results_dates: results_dates.csv
+  excluding_action_types: [split, bonus, rights, demerger, merger]
+
+session:
+  first_candle: "09:15"
+  last_candle: "15:29"
+  or_start: "09:15"
+  or_end: "09:29"
+  entry_start: "09:30"
+  entry_end: "14:30"
+  hard_exit: "15:10"
+
+features:
+  atr_period: 14
+  min_daily_bars: 100
+  rv_lookback: 20
+
+scoring:
+  threshold: 65
+  breakout:
+    weight: 30
+    full_at_atr: 0.10
+  rel_volume:
+    weight: 30
+  market:
+    weight: 15
+    band: 0.001                 # +/-0.10%
+    neutral_points: 7.5
+  or_quality:
+    weight: 15
+    filter_min: 0.10
+    flat_min: 0.20
+    flat_max: 0.60
+    filter_max: 1.00
+  volatility:
+    weight: 10
+    ramp_min: 0.010
+    flat_min: 0.015
+    flat_max: 0.040
+    ramp_max: 0.060
+
+portfolio:
+  capital: 10000
+  max_deployment: 8000
+  max_positions: 3
+  risk_cap: 100
+  compounding: false
+  slot_mode: concurrent
+
+execution:
+  slippage_ticks: 1
+  slippage_pct: 0.0002
+  stress_multipliers: [1, 2, 3]
+  tick_rounding: adverse
+  entry_candle_stop_check_variants: [false, true]   # [default, conservative]
+  tick_table: tick_sizes.yaml   # relative to this file
+  cost_table: costs.yaml
+
+dq:
+  expected_candles: 375         # 09:15..15:29
+  max_missing_minutes_warn: 5
+  max_missing_minutes_error: 60
+  volume_spike_mult: 50         # candle volume > k x session median -> warn
+  overnight_gap_error: 0.20     # |open/prev_close - 1| without a corporate action
+  daily_minute_tolerance: 0.005 # daily H/L vs minute H/L reconciliation
+
+validation:
+  null_bootstrap: 2000
+  vix_terciles_from: in_sample
+  trend_day_threshold: 0.5
+  results_window_sessions: 3
+  expiry_types: [index_weekly, stock_monthly]
+  score_buckets: [65, 75, 85]
+  factor_quantiles: 5
