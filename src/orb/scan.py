@@ -51,7 +51,15 @@ def load_from_disk(cfg: Config) -> tuple[ContextBuilder, pl.DataFrame]:
             raise RuntimeError(f"{p} missing: run `orb dq` first")
         return pl.read_parquet(p).filter(pl.col("severity") == ERROR)
 
-    invalid_daily = errors("daily_issues.parquet").select("symbol", "date").unique()
+    # daily bars that must not feed the ATR history: DQ errors, and every bar on a
+    # whole-market excluded day (Muhurat / DR / mock sessions are ~1 hour long)
+    special_days = ref.day_exclusions()["date"].unique()
+    invalid_daily = pl.concat(
+        [
+            errors("daily_issues.parquet").select("symbol", "date"),
+            daily.filter(pl.col("date").is_in(special_days.to_list())).select("symbol", "date"),
+        ]
+    ).unique()
     excl = pl.read_parquet(dq / "exclusions.parquet").select("symbol", "date", "reason")
     whole_days = ref.day_exclusions().select(symbol=pl.lit("*"), date="date", reason="reason")
     indices = [cfg.data.index.primary, cfg.data.index.fallback]

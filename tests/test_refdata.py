@@ -416,3 +416,41 @@ def test_results_day_is_meeting_date_or_next_trading_day():
         ("INFY", date(2024, 10, 18)),
         ("HDFCBANK", date(2024, 10, 21)),
     }  # Saturday meeting -> Monday
+
+
+def test_special_session_draft_rules():
+    from orb.refdata import special_sessions as ss
+
+    days = [date(2024, 10, d) for d in range(1, 32) if date(2024, 10, d).weekday() < 5]
+    days += [date(2024, 11, 1), date(2024, 11, 2)]  # Fri Muhurat-like, Sat full session
+    tv = pl.DataFrame(
+        {"date": days, "turnover": [100.0] * (len(days) - 2) + [15.0, 98.0], "n_symbols": 2000}
+    )
+    minute = pl.DataFrame(
+        {
+            "date": [date(2024, 10, 7)],
+            "median_first": [9 * 60 + 15.0],
+            "median_last": [12 * 60 + 0.0],
+            "median_candles": [165.0],
+        }
+    )
+    minute = minute.with_columns(
+        late_start=pl.lit(False),
+        early_end=pl.lit(True),
+        few_candles=pl.lit(True),
+        extended_end=pl.lit(False),
+    )
+    cands = {
+        date(2024, 11, 1): "Muhurat",
+        date(2024, 11, 2): "Saturday session (Budget)",
+        date(2024, 12, 25): "Muhurat",
+    }
+    d = {r["date"]: r for r in ss.draft(ss.bhav_flags(tv), minute, cands).to_dicts()}
+    assert d[date(2024, 11, 1)]["detection_reason"] == "low_turnover"
+    assert d[date(2024, 11, 1)]["session_type"] == "muhurat"
+    assert d[date(2024, 11, 2)]["proposed_action"] == "tag_budget"  # full-length Saturday
+    assert "weekend" in d[date(2024, 11, 2)]["detection_reason"]
+    assert d[date(2024, 10, 7)]["detection_reason"] == "early_end;few_candles"
+    assert d[date(2024, 10, 7)]["note"].startswith("detected; not in the candidate list")
+    assert "no bhavcopy" in d[date(2024, 12, 25)]["note"]
+    assert all(r["needs_review"] for r in d.values())

@@ -308,6 +308,40 @@ class RefBuilder:
         self._write(ca, self.cfg.reference.corporate_actions)
         return ca
 
+    # ------------------------------------------------------- special sessions
+    def special_sessions(
+        self, raw: ParquetStore, minute_store: ParquetStore | None
+    ) -> pl.DataFrame:
+        """Draft -> manual/special_sessions_draft.csv; reviewed exclude rows ->
+        special_sessions.csv (header-only until something is confirmed)."""
+        from orb.refdata import special_sessions as ss
+
+        cpath = self.root / MANUAL_DIR / "special_session_candidates.csv"
+        cands = {}
+        if cpath.exists():
+            c = pl.read_csv(cpath, try_parse_dates=True)
+            cands = dict(zip(c["date"].to_list(), c["label"].to_list(), strict=True))
+        bhav = ss.bhav_flags(ss.market_turnover(raw))
+        minute = None
+        if minute_store is not None:
+            syms = minute_store.symbols("minute")
+            minute = ss.minute_flags(minute_store, syms) if syms else None
+        dpath = self.root / MANUAL_DIR / "special_sessions_draft.csv"
+        new = ss.draft(bhav, minute, cands)
+        if dpath.exists():  # keep the user's review decisions for dates already drafted
+            old = pl.read_csv(dpath, try_parse_dates=True)
+            keep = old.filter(pl.col("needs_review").cast(pl.String).str.to_lowercase() == "false")
+            new = pl.concat(
+                [
+                    keep.select(new.columns).cast(new.schema),
+                    new.join(keep.select("date"), on="date", how="anti"),
+                ]
+            ).sort("date")
+        self._write(new, f"{MANUAL_DIR}/special_sessions_draft.csv")
+        confirmed = new.filter(~pl.col("needs_review") & (pl.col("proposed_action") == "exclude"))
+        self._write(confirmed.select("date", "session_type"), self.cfg.reference.special_sessions)
+        return new
+
     # ------------------------------------------------------- expiries/results
     def expiries(self, start: date, end: date) -> pl.DataFrame:
         df = nse.download_expiries(self.fetch("fo_bhavcopy"), self.n, start, end)

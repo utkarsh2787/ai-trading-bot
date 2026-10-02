@@ -257,12 +257,18 @@ def parse_symbol_changes(text: str) -> pl.DataFrame:
 
 
 def download_bhavcopy(
-    fetch: Fetcher, cfg: NSEConfig, start: date, end: date
+    fetch: Fetcher, cfg: NSEConfig, start: date, end: date, include_weekends: bool = True
 ) -> tuple[pl.DataFrame, list[date]]:
-    """Raw daily bars for all EQ/BE symbols; also returns weekdays with no file
-    (holidays, or genuinely missing -> check against the trading calendar)."""
+    """Raw daily bars for all EQ/BE symbols. Weekends are tried too: special
+    sessions (Muhurat, DR drills, Saturday budget days) can fall on them.
+    Also returns the weekdays with no file (holidays, or genuinely missing)."""
     parts, missing = [], []
-    for day in weekdays(start, end):
+    days = (
+        [start + timedelta(days=k) for k in range((end - start).days + 1)]
+        if include_weekends
+        else list(weekdays(start, end))
+    )
+    for day in days:
         body = None
         for url in bhavcopy.urls_for(cfg.archives_base, day, cfg.bhavcopy_udiff_from):
             body = fetch.get(url)
@@ -270,7 +276,8 @@ def download_bhavcopy(
                 break
             body = None
         if body is None:
-            missing.append(day)
+            if day.weekday() < 5:
+                missing.append(day)
             continue
         parts.append(bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series))
     df = pl.concat(parts) if parts else empty(DAILY_SCHEMA)

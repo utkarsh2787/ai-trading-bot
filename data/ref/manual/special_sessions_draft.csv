@@ -1,0 +1,16 @@
+date,session_type,proposed_action,detection_reason,in_candidate_list,candidate_label,bhav_present,turnover_ratio,median_first,median_last,median_candles,needs_review,note
+2017-07-10,other,exclude,low_turnover,false,,true,0.2578668016790611,,,,true,detected; not in the candidate list
+2017-10-19,muhurat,exclude,low_turnover,true,Muhurat,true,0.19143124004777948,,,,true,candidate confirmed by detection
+2018-11-07,muhurat,exclude,low_turnover,true,Muhurat,true,0.13066735289570272,,,,true,candidate confirmed by detection
+2019-10-27,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.1434011727588433,,,,true,candidate confirmed by detection
+2020-02-01,special,tag_budget,weekend,true,Saturday session (Budget),true,0.9732349942784433,,,,true,candidate confirmed by detection
+2020-11-14,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.1494264581499095,,,,true,candidate confirmed by detection
+2021-11-04,muhurat,exclude,low_turnover,true,Muhurat,true,0.1661997776443848,,,,true,candidate confirmed by detection
+2022-10-24,muhurat,exclude,low_turnover,true,Muhurat,true,0.2094093061293587,,,,true,candidate confirmed by detection
+2023-11-12,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.21675132089436053,,,,true,candidate confirmed by detection
+2024-01-20,special,exclude,weekend,true,Saturday session,true,0.646961968257246,,,,true,candidate confirmed by detection
+2024-03-02,special,exclude,weekend;low_turnover,true,Saturday session,true,0.10669011694032267,,,,true,candidate confirmed by detection
+2024-05-18,special,exclude,weekend;low_turnover,true,Saturday session,true,0.14056916620619617,,,,true,candidate confirmed by detection
+2024-11-01,muhurat,exclude,low_turnover,true,Muhurat,true,0.18000834052725664,,,,true,candidate confirmed by detection
+2025-02-01,special,tag_budget,weekend,true,Saturday session (Budget),true,1.0735097491886991,,,,true,candidate confirmed by detection
+2025-10-21,muhurat,exclude,low_turnover,true,Muhurat,true,0.19478785432761106,,,,true,candidate confirmed by detection

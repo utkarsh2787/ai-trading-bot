@@ -90,6 +90,10 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
             b.ban_list(cfg.data.minute_history_start, end)
         elif step == "mergers":
             b.merger_candidates(raw)
+        elif step == "sessions":
+            snaps = snapshot.list_snapshots(cfg.data.root, cfg.data.provider)
+            minute_store = raw if raw.symbols("minute") else (snaps[-1].store if snaps else None)
+            b.special_sessions(raw, minute_store)
         elif step == "expiries":
             b.expiries(cfg.data.minute_history_start, end)
         elif step == "results":
@@ -390,6 +394,7 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument(
         "what",
         choices=[
+            "sessions",
             "symbols",
             "nifty200",
             "bhavcopy",
