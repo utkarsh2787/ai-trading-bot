@@ -9,7 +9,8 @@ Rules (spec + decisions 4, 5, 17, 20, 22, 25):
     candle before the hard exit. Long: low <= stop -> fill min(stop, open) -
     slippage; short: high >= stop -> fill max(stop, open) + slippage.
   * hard exit: open of the 15:10 candle -/+ slippage. Missing -> the last
-    close before 15:10 (flag EXIT_FALLBACK); a position is never held past 15:10.
+    close before 15:10 (exit_reason EXIT_SUBSTITUTED, flag EXIT_FALLBACK); a
+    position is never held past 15:10.
   * a delayed entry may not go beyond the candle after the last allowed signal.
   * slippage per fill = multiplier x (ticks x tick + pct x price).
   * MFE / MAE: from the entry candle through the exit candle, inclusive.
@@ -48,7 +49,7 @@ class TradeResult:
     exit_slot: int | None = None
     exit_raw: float | None = None
     exit_price: float | None = None
-    exit_reason: str | None = None  # STOP | HARD_EXIT
+    exit_reason: str | None = None  # STOP | HARD_EXIT | EXIT_SUBSTITUTED
     flags: str = ""
     # per share (always, when status OK)
     gross_per_share: float | None = None
@@ -167,6 +168,7 @@ def simulate(
             present = np.flatnonzero(~np.isnan(a.close[:hard]))
             exit_slot = int(present[-1])
             exit_raw = float(a.close[exit_slot])
+            reason = "EXIT_SUBSTITUTED"  # 15:10 candle missing: substitute price
             flags.append("EXIT_FALLBACK")
     exit_price = _fill(float(exit_raw), sell, tick, cfg, slippage_mult)
 

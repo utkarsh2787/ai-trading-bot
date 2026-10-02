@@ -135,6 +135,7 @@ def summary(trades: pl.DataFrame) -> pl.DataFrame:
                 "profit_factor": round(gains / -losses, 3) if losses < 0 else None,
                 "stops": g.filter(pl.col("exit_reason") == "STOP").height,
                 "hard_exits": g.filter(pl.col("exit_reason") == "HARD_EXIT").height,
+                "exits_substituted": g.filter(pl.col("exit_reason") == "EXIT_SUBSTITUTED").height,
             }
         )
     return s.join(pl.DataFrame(extra), on=["variant", "slippage_mult"]).sort(

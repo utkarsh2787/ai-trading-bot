@@ -105,6 +105,7 @@ def test_missing_entry_and_exit_candles(cfg):
     assert r.entry_slot == 31 and "ENTRY_DELAYED" in r.flags
     # never held past 15:10: exits at the 15:09 close, not the 15:11 open
     assert r.exit_slot == HARD - 1 and r.exit_raw == 101.0 and "EXIT_FALLBACK" in r.flags
+    assert r.exit_reason == "EXIT_SUBSTITUTED"
     late = bars()
     for k in (late.open, late.high, late.low, late.close):
         k[316:330] = np.nan  # signal 14:30 (slot 315), no 14:31 candle

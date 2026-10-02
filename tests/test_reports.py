@@ -55,7 +55,18 @@ def test_trade_log_and_summary(run, cfg):
     assert s["avg_win"] == pytest.approx(EXPECTED["B"]["net"], abs=0.01)
     assert s["avg_loss"] == pytest.approx((nets[0] + nets[2]) / 2, abs=0.01)
     assert s["max_drawdown"] == pytest.approx(-DAY_NET, abs=0.01)
-    assert (s["stops"], s["hard_exits"]) == (2, 1)
+    assert (s["stops"], s["hard_exits"], s["exits_substituted"]) == (2, 1, 0)
+    sub = tl.with_columns(
+        exit_reason=pl.when(pl.col("symbol") == "B")
+        .then(pl.lit("EXIT_SUBSTITUTED"))
+        .otherwise("exit_reason")
+    )
+    s2 = (
+        reports.summary(sub)
+        .filter((pl.col("variant") == "default") & (pl.col("slippage_mult") == 1.0))
+        .row(0, named=True)
+    )
+    assert (s2["hard_exits"], s2["exits_substituted"]) == (0, 1)
     assert s["profit_factor"] == pytest.approx(nets[1] / -(nets[0] + nets[2]), abs=1e-3)
 
 
