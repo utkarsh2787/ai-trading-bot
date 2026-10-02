@@ -11,6 +11,7 @@ from datetime import date
 import polars as pl
 
 from orb.config import DQConfig, SessionConfig
+from orb.data.adjust import adjust_daily
 
 ISSUE_SCHEMA = {
     "symbol": pl.String(),
@@ -62,8 +63,10 @@ def check_minute(
 
     # --- null / non-positive prices / OHLC consistency (row level)
     px = ["open", "high", "low", "close"]
+    # indices carry zero/missing volume on Kite: volume is never checked for them
+    null_cols = px if is_index else [*px, "volume"]
     rows = d.group_by("symbol", "date").agg(
-        nulls=pl.any_horizontal(pl.col(c).is_null() for c in [*px, "volume"]).sum(),
+        nulls=pl.any_horizontal(pl.col(c).is_null() for c in null_cols).sum(),
         nonpos=pl.any_horizontal(pl.col(c) <= 0 for c in px).sum(),
         ohlc_bad=(
             (pl.col("high") < pl.max_horizontal("open", "close"))
@@ -84,7 +87,7 @@ def check_minute(
         med_vol=pl.col("volume").median(),
     )
     for col, check, detail in [
-        ("nulls", "null_values", "candles with null OHLCV"),
+        ("nulls", "null_values", "candles with null OHLC (or volume, stocks only)"),
         ("nonpos", "nonpositive_price", "candles with price <= 0"),
         ("ohlc_bad", "ohlc_inconsistent", "high/low do not bound open/close"),
         ("off_minute", "off_minute_timestamp", "timestamps not on a minute boundary"),
@@ -128,7 +131,8 @@ def check_minute(
         )
     )
 
-    # --- volume (indices carry no volume on Kite)
+    # --- volume (stocks only). Spikes are warn-only: high RV is a scoring input,
+    # so excluding them would remove exactly the high-RV breakout days.
     if not is_index:
         out.append(
             _issues(
@@ -199,22 +203,56 @@ def check_daily(
             )
         )
 
-    # unexplained overnight gap: no corporate action of any kind on that ex_date
-    gaps = d.with_columns(gap=pl.col("open") / pl.col("close").shift(1).over("symbol") - 1).filter(
-        pl.col("gap").abs() > dq.overnight_gap_error
-    )
-    explained = actions.select("symbol", pl.col("ex_date").alias("date")).unique()
-    gaps = gaps.join(explained, on=["symbol", "date"], how="anti")
-    out.append(
-        _issues(
-            gaps,
-            "unexplained_gap",
-            ERROR,
-            pl.col("gap"),
-            "overnight gap beyond threshold with no corporate action",
-        )
-    )
+    out.append(_gap_issues(d, actions, dq))
     return concat_issues(out)
+
+
+def _gap_issues(d: pl.DataFrame, actions: pl.DataFrame, dq: DQConfig) -> pl.DataFrame:
+    """Overnight gaps measured on the corporate-action-adjusted series.
+
+    News gaps are real and are prime ORB days, so they are kept (warn). Errors:
+      * extreme_gap: |gap| > overnight_gap_error with no price-factor action;
+      * adjustment_mismatch: a known split/bonus/... is on that ex-date but the
+        adjusted gap is still beyond the error threshold, i.e. the price looks
+        unadjusted relative to the known ratio (or the ratio is wrong).
+    """
+    adj = adjust_daily(d, actions).with_columns(
+        gap=pl.col("adj_open") / pl.col("adj_close").shift(1).over("symbol") - 1
+    )
+    factored = (
+        actions.filter(pl.col("price_factor").is_not_null())
+        .select("symbol", pl.col("ex_date").alias("date"), _ca=pl.lit(True))
+        .unique()
+    )
+    g = adj.join(factored, on=["symbol", "date"], how="left").with_columns(
+        _ca=pl.col("_ca").fill_null(False), _abs=pl.col("gap").abs()
+    )
+    big = pl.col("_abs") > dq.overnight_gap_error
+    return concat_issues(
+        [
+            _issues(
+                g.filter(pl.col("_ca") & big),
+                "adjustment_mismatch",
+                ERROR,
+                pl.col("gap"),
+                "adjusted gap on a corporate-action ex-date still beyond threshold",
+            ),
+            _issues(
+                g.filter(~pl.col("_ca") & big),
+                "extreme_gap",
+                ERROR,
+                pl.col("gap"),
+                "overnight gap beyond error threshold, no price-factor action",
+            ),
+            _issues(
+                g.filter(~pl.col("_ca") & ~big & (pl.col("_abs") > dq.overnight_gap_warn)),
+                "news_gap",
+                WARN,
+                pl.col("gap"),
+                "large overnight gap (kept)",
+            ),
+        ]
+    )
 
 
 def reconcile_daily_minute(daily: pl.DataFrame, minute: pl.DataFrame, dq: DQConfig) -> pl.DataFrame:

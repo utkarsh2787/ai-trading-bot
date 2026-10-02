@@ -13,6 +13,7 @@ def _cfg(root):
         minute_glob="minute/{symbol}.*",
         daily_glob="daily/{symbol}.*",
         timezone="Asia/Kolkata",
+        price_basis="raw",
         columns={
             "Datetime": "ts",
             "Date": "date",

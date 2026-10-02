@@ -32,9 +32,13 @@ def test_default_config_loads_with_spec_values(cfg: Config):
     assert cfg.costs.schedules[0].brokerage_cap == 20
 
 
-def test_unverified_tables_warn():
-    with pytest.warns(UserWarning, match="unverified"):
+def test_unverified_cost_fields_warn_and_tick_table_verified(cfg):
+    with pytest.warns(UserWarning, match="exchange_txn_pct"):
         load_config(ROOT / "config" / "default.yaml")
+    assert cfg.ticks.verified
+    assert not cfg.costs.verification["exchange_txn_pct"].verified
+    assert cfg.costs.verification["sebi_per_crore"].verified
+    assert cfg.costs.verification["gst_pct"].verified
 
 
 def test_hash_is_stable_and_key_order_independent(tmp_path, cfg):

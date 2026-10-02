@@ -1,0 +1,89 @@
+ 
+ 
+ 
+PRESS RELEASE 
+Mumbai, February 21, 2025 
+ 
+Replacements in indices 
+ 
+The Index Maintenance Sub -Committee (Equity) of NSE Indices Limited has decided to make 
+replacement of stocks in various indices as part of its periodic review as listed hereunder.  These 
+changes shall become effective from March 28, 2025 (close of March 27, 2025). 
+ 
+1) Replacements on account of semi-annual review of broad market indices: 
+ 
+a) Nifty 50 
+ 
+The following companies are being excluded: 
+ 
+Sr. No. Company Name Symbol 
+1 Bharat Petroleum Corporation Ltd. BPCL 
+2 Britannia Industries Ltd. BRITANNIA 
+ 
+The following companies are being included: 
+ 
+Sr. No. Company Name Symbol 
+1 Jio Financial Services Ltd. JIOFIN 
+2 Zomato Ltd. ZOMATO 
+ 
+Note:  
+1. Zomato Ltd. (average free-float market capitalization Rs. 1,69,837 crores) and Jio Financial Services Ltd. (average 
+free-float market capitalization Rs. 1,04,387 crores) have been included in Nifty 50 index as the 6 -month average 
+free-float market capitalization of these companies within eligible universe is at least 1.5 times the 6 -month average 
+free-float market capitalization of the smallest constituents i.e. Bharat Petroleum Corporation Ltd. (average free-
+float market capitalization Rs. 60,928 crores) and Britannia Industries Ltd. (average free-float market capitalization 
+Rs. 64,151 crores) respectively. 
+2. Next two eligible companies namely InterGlobe Aviation Ltd. (Rs. 86,688 crores) and Hindustan Aeronautics Ltd. 
+(Rs. 82,993 crores) were not considered for inclusion in Nifty 50 index as the average free-float market capitalization 
+of two Nifty 50 constituents with lowest average free-float market capitalization (after exclusion of two companies in 
+Nifty 50 listed above) was le ss than 1.5 times the 6 -month average free-float market capitalization Hero MotoCorp 
+Ltd. (Rs. 64,181 crores) and Eicher Motors Ltd. (Rs. 66,764 crores). 
+3. Stocks that are available for trading in NSE’s Futures & Options segment are only eligible for inclusion in the index. 
+ 
+The above replacements will also be applicable to Nifty50 Equal Weight index. 
+ 
+ 
+ 
+
+l) Nifty 200 
+ 
+The following companies are being excluded: 
+ 
+Sr. No. Company Name Symbol 
+1 Balkrishna Industries Ltd. BALKRISIND 
+2 Delhivery Ltd. DELHIVERY 
+3 Fertilisers and Chemicals Travancore Ltd. FACT 
+4 IDBI Bank Ltd. IDBI 
+5 Indian Overseas Bank IOB 
+6 JSW Infrastructure Ltd. JSWINFRA 
+7 Mangalore Refinery & Petrochemicals Ltd. MRPL 
+8 NLC India Ltd. NLCINDIA 
+9 Poonawalla Fincorp Ltd. POONAWALLA 
+10 Sundaram Finance Ltd. SUNDARMFIN 
+11 Tata Chemicals Ltd. TATACHEM 
+ 
+The following companies are being included: 
+ 
+Sr. No. Company Name Symbol 
+1 Bajaj Housing Finance Ltd. BAJAJHFL 
+2 Glenmark Pharmaceuticals Ltd. GLENMARK 
+3 Hyundai Motor India Ltd. HYUNDAI 
+4 Motilal Oswal Financial Services Ltd. MOTILALOFS 
+5 National Aluminium Co. Ltd. NATIONALUM 
+6 NTPC Green Energy Ltd. NTPCGREEN 
+7 Ola Electric Mobility Ltd. OLAELEC 
+8 Premier Energies Ltd. PREMIERENE 
+9 Swiggy Ltd. SWIGGY 
+10 Vishal Mega Mart Ltd. VMM 
+11 Waaree Energies Ltd. WAAREEENER 
+ 
+m) Nifty LargeMidcap 250 
+ 
+The following companies are being excluded: 
+ 
+Sr. No. Company Name Symbol 
+1 Bayer Cropscience Ltd. BAYERCROP 
+2 Carborundum Universal Ltd. CARBORUNIV 
+ 
+ 
+Sr. No. Company

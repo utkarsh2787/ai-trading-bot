@@ -16,8 +16,11 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
+import polars as pl
+
 from orb.data.kite import date_chunks
 from orb.data.provider import DataProvider, FatalProviderError, ProviderError, SymbolNotFound
+from orb.data.reference import SymbolResolver
 from orb.data.store import ParquetStore
 
 log = logging.getLogger(__name__)
@@ -29,7 +32,10 @@ Kind = Literal["minute", "daily"]
 class DownloadReport:
     fetched: list[tuple[str, date, date, int]] = field(default_factory=list)
     skipped: int = 0
-    unresolved: list[str] = field(default_factory=list)
+    # symbols the provider does not know, split by symbol_map:
+    renamed: list[tuple[str, str]] = field(default_factory=list)  # (old, fetched-as new)
+    merged: list[tuple[str, str]] = field(default_factory=list)  # (old, acquirer) - needs vendor
+    delisted: list[str] = field(default_factory=list)  # not in map - needs vendor
     failed: list[tuple[str, date, date, str]] = field(default_factory=list)
 
 
@@ -71,11 +77,13 @@ class Downloader:
         store: ParquetStore,
         manifest: Manifest,
         chunk_days: dict[Kind, int],
+        resolver: SymbolResolver | None = None,
     ):
         self.provider = provider
         self.store = store
         self.manifest = manifest
         self.chunk_days = chunk_days
+        self.resolver = resolver
 
     def run(
         self, symbols: list[str], kind: Kind, start: date, end: date, today: date
@@ -85,22 +93,45 @@ class Downloader:
         write = self.store.write_minute if kind == "minute" else self.store.write_daily
         pname = self.provider.name
         for symbol in symbols:
+            fetch_as = symbol  # provider symbol; data is stored under `symbol`
             for a, b in date_chunks(start, end, self.chunk_days[kind]):
                 if self.manifest.is_done(pname, kind, symbol, a, b):
                     report.skipped += 1
                     continue
                 try:
-                    df = fetch(symbol, a, b)
+                    df = fetch(fetch_as, a, b)
                 except FatalProviderError:
                     raise
                 except SymbolNotFound:
-                    log.warning("unresolved symbol %s", symbol)
-                    report.unresolved.append(symbol)
-                    break
+                    status, target = (
+                        self.resolver.classify(symbol) if self.resolver else ("delisted", None)
+                    )
+                    if status != "renamed" or fetch_as != symbol:
+                        if status == "merged":
+                            report.merged.append((symbol, target))
+                        else:
+                            report.delisted.append(symbol)
+                        log.warning("%s %s%s", symbol, status, f" into {target}" if target else "")
+                        break
+                    log.info("%s renamed -> fetching as %s", symbol, target)
+                    report.renamed.append((symbol, target))
+                    fetch_as = target
+                    try:
+                        df = fetch(fetch_as, a, b)
+                    except FatalProviderError:
+                        raise
+                    except SymbolNotFound:
+                        report.delisted.append(symbol)
+                        break
+                    except ProviderError as exc:
+                        report.failed.append((symbol, a, b, str(exc)))
+                        continue
                 except ProviderError as exc:
                     log.error("failed %s %s %s..%s: %s", kind, symbol, a, b, exc)
                     report.failed.append((symbol, a, b, str(exc)))
                     continue
+                if fetch_as != symbol:
+                    df = df.with_columns(symbol=pl.lit(symbol))
                 write(df)
                 if b < today:
                     self.manifest.mark(pname, kind, symbol, a, b, df.height)

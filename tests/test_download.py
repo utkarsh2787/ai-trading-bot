@@ -75,7 +75,7 @@ def test_chunk_touching_today_not_marked_complete(tmp_path):
 
 def test_unresolved_symbol_reported_and_others_continue(tmp_path):
     r = _dl(tmp_path, FakeProvider()).run(["GONE", "A"], "daily", START, END, TODAY)
-    assert r.unresolved == ["GONE"]
+    assert r.delisted == ["GONE"]
     assert {s for s, *_ in r.fetched} == {"A"}
 
 
@@ -86,3 +86,44 @@ def test_fatal_error_stops_download_but_keeps_progress(tmp_path):
     p2 = FakeProvider()
     _dl(tmp_path, p2).run(["A", "B"], "daily", START, END, TODAY)
     assert {s for s, *_ in p2.calls} == {"B"}
+
+
+class RenamingProvider(FakeProvider):
+    """Knows only current symbols, like Kite's instrument list."""
+
+    known = {"LTM", "A"}
+
+    def daily_bars(self, symbol, start, end):
+        if symbol not in self.known:
+            self.calls.append((symbol, start, end))
+            raise SymbolNotFound(symbol)
+        return super().daily_bars(symbol, start, end)
+
+
+def test_unresolved_split_into_renamed_merged_delisted(tmp_path):
+    import polars as pl
+
+    from orb.data.reference import SymbolResolver
+
+    sm = pl.DataFrame(
+        {
+            "old_symbol": ["LTI", "LTIM", "HDFC"],
+            "new_symbol": ["LTIM", "LTM", "HDFCBANK"],
+            "effective_date": [date(2022, 12, 5), date(2026, 2, 27), date(2023, 7, 13)],
+            "change_type": ["rename", "rename", "merger"],
+        }
+    )
+    dl = Downloader(
+        RenamingProvider(),
+        ParquetStore(tmp_path),
+        Manifest(tmp_path / "m.jsonl"),
+        {"daily": 30, "minute": 30},
+        resolver=SymbolResolver(sm),
+    )
+    r = dl.run(["LTI", "HDFC", "GONE2", "A"], "daily", START, END, TODAY)
+    assert set(r.renamed) == {("LTI", "LTM")}  # rename chain followed to the end
+    assert r.merged == [("HDFC", "HDFCBANK")]  # acquirer's prices NOT used
+    assert r.delisted == ["GONE2"]
+    stored = ParquetStore(tmp_path).read_daily("LTI", START, END)
+    assert stored.height > 0 and stored["symbol"].unique().to_list() == ["LTI"]
+    assert ParquetStore(tmp_path).read_daily("HDFC", START, END).height == 0

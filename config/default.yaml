@@ -13,6 +13,7 @@ data:
   provider: kite                # kite | local
   daily_history_start: 2016-01-01   # fixed Wilder-ATR seed origin (decision 7)
   minute_history_start: 2017-10-01  # >= 20 sessions of RV warm-up before run.start_date
+  deadjust_tolerance: 0.005         # Kite vs bhavcopy OHLC ratio dispersion (decision 30)
   index:
     primary: NIFTY 200
     fallback: NIFTY 50
@@ -27,11 +28,13 @@ data:
     day_chunk_days: 2000
     max_retries: 5
     backoff_base_sec: 1.0
+    price_basis: adjusted       # fixed: Kite has no unadjusted series
   local:
     root: vendor
     minute_glob: "minute/{symbol}.*"
     daily_glob: "daily/{symbol}.*"
     timezone: Asia/Kolkata
+    price_basis: raw            # raw | adjusted (adjusted -> de-adjusted via bhavcopy)
     columns:                    # vendor column -> canonical column
       timestamp: ts
       date: date
@@ -40,6 +43,16 @@ data:
       low: low
       close: close
       volume: volume
+  nse:
+    archives_base: https://nsearchives.nseindia.com
+    www_base: https://www.nseindia.com
+    niftyindices_base: https://www.niftyindices.com
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    max_requests_per_sec: 1
+    timeout_sec: 30
+    max_retries: 3
+    bhavcopy_udiff_from: 2024-07-08
+    series: [EQ, BE]
 
 reference:
   root: data/ref
@@ -66,7 +79,9 @@ session:
 features:
   atr_period: 14
   min_daily_bars: 100
-  rv_lookback: 20
+  rv_lookback: 20               # valid sessions in the RV baseline
+  rv_window_trading_days: 30    # look for them within the last 30 trading days
+  rv_min_valid_sessions: 15     # fewer -> INSUFFICIENT_HISTORY
 
 scoring:
   threshold: 65
@@ -105,6 +120,8 @@ execution:
   slippage_pct: 0.0002
   stress_multipliers: [1, 2, 3]
   tick_rounding: adverse
+  exchange: NSE                 # live orders (if ever) must set exchange=NSE explicitly
+  round_stt_stamp_to_rupee: true  # per contract note (per day); reports show both
   entry_candle_stop_check_variants: [false, true]   # [default, conservative]
   tick_table: tick_sizes.yaml   # relative to this file
   cost_table: costs.yaml
@@ -113,8 +130,9 @@ dq:
   expected_candles: 375         # 09:15..15:29
   max_missing_minutes_warn: 5
   max_missing_minutes_error: 60
-  volume_spike_mult: 50         # candle volume > k x session median -> warn
-  overnight_gap_error: 0.20     # |open/prev_close - 1| without a corporate action
+  volume_spike_mult: 50         # candle volume > k x session median -> warn only
+  overnight_gap_warn: 0.10      # |adj open / adj prev close - 1| -> warn (news gaps kept)
+  overnight_gap_error: 0.25     # beyond this -> error (also: looks unadjusted)
   daily_minute_tolerance: 0.005 # daily H/L vs minute H/L reconciliation
 
 validation:

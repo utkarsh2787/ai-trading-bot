@@ -45,20 +45,35 @@ def test_local_download_then_dq(tmp_path, capsys):
         m.with_columns(pl.col("ts").dt.replace_time_zone(None)).drop("symbol").write_csv(
             vendor / "minute" / f"{sym}.csv"
         )
-        daily_bars(sym, date(2016, 1, 1), 520).drop("symbol").write_parquet(
-            vendor / "daily" / f"{sym}.parquet"
-        )
+        daily_bars(sym, date(2016, 1, 1), 600).filter(pl.col("date") <= DAYS[-1]).drop(
+            "symbol"
+        ).write_parquet(vendor / "daily" / f"{sym}.parquet")
 
-    main(["--config", str(cfg_dir / "default.yaml"), "download"])
-    store = ParquetStore(tmp_path / "data")
-    assert store.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
-    assert store.read_minute("AAA", DAYS[0], DAYS[-1]).height == 3 * 375  # dup collapsed
+    cfg_path = str(cfg_dir / "default.yaml")
+    main(["--config", cfg_path, "download"])
+    vend = ParquetStore(tmp_path / "data" / "vendor" / "local")
+    assert vend.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
+    assert vend.read_minute("AAA", DAYS[0], DAYS[-1]).height == 3 * 375  # dup collapsed
 
-    # vendor duplicate is collapsed by the store; inject one at the store level to test dq
-    raw_min = pl.read_parquet(store.minute_dir("AAA") / "2018.parquet")
-    pl.concat([raw_min, raw_min.head(1)]).write_parquet(store.minute_dir("AAA") / "2018.parquet")
+    # stock daily bars come from the bhavcopy (`orb ref bhavcopy`); simulate it
+    raw = ParquetStore(tmp_path / "data" / "raw")
+    raw.write_daily(vend.read_daily("AAA", date(2016, 1, 1), DAYS[-1]))
+    main(["--config", cfg_path, "build-raw"])
+    assert raw.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
+    assert raw.read_daily("NIFTY 200", DAYS[0], DAYS[-1]).height == 3  # index daily copied
 
-    main(["--config", str(cfg_dir / "default.yaml"), "dq"])
-    excluded = pl.read_parquet(tmp_path / "data" / "_dq" / "excluded_stock_days.parquet")
+    # inject a duplicate timestamp at the raw-store level to exercise dq
+    f = raw.minute_dir("AAA") / "2018.parquet"
+    m = pl.read_parquet(f)
+    pl.concat([m, m.head(1)]).write_parquet(f)
+
+    main(["--config", cfg_path, "dq"])
+    dq = tmp_path / "data" / "_dq"
+    excluded = pl.read_parquet(dq / "excluded_stock_days.parquet")
     assert excluded.to_dicts() == [{"symbol": "AAA", "date": DAYS[0]}]
     assert "duplicate_timestamp" in capsys.readouterr().out
+    by_reason = pl.read_csv(dq / "exclusions_by_reason.csv")
+    row = by_reason.filter(pl.col("reason") == "DUPLICATE_TIMESTAMP").row(0, named=True)
+    assert row["stock_days"] == 1 and row["universe_days"] == 3
+    assert (dq / "exclusions_by_year.csv").exists()
+    assert (dq / "exclusions_by_vix_tercile.csv").exists()

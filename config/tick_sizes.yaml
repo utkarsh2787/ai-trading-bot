@@ -1,16 +1,25 @@
-# NSE equity tick sizes, date-effective. The band is chosen by the previous close.
-# UNVERIFIED: confirm effective dates and bands against the NSE circulars before
-# trusting results. The loader warns while `verified: false`.
-verified: false
+# NSE equity tick sizes, date-effective. Verified by the user (2026-10-02).
+#
+# The band is set by the security's close on the last trading day of the
+# PREVIOUS month and applies for the whole next month; it never follows the live
+# price. A band's `max_price` is its upper bound; `max_inclusive: false` means
+# strictly below. The last band is unbounded.
+verified: true
+reference_price: prev_month_last_close
+source: "NSE circulars; bands and effective dates confirmed by the user"
 regimes:
-  - effective_from: 2000-01-01
+  - effective_from: 2000-01-01          # flat 0.05 before 2024-06-10
     bands:
-      - {min_price: 0, tick: 0.05}
-  - effective_from: 2025-04-15        # VERIFY: NSE price-band tick sizes
+      - {tick: 0.05}
+  - effective_from: 2024-06-10          # <250 -> 0.01, >=250 -> 0.05
     bands:
-      - {min_price: 0, tick: 0.01}
-      - {min_price: 250, tick: 0.05}
-      - {min_price: 1000, tick: 0.10}
-      - {min_price: 5000, tick: 0.50}
-      - {min_price: 10000, tick: 1.00}
-      - {min_price: 20000, tick: 5.00}
+      - {max_price: 250, max_inclusive: false, tick: 0.01}
+      - {tick: 0.05}
+  - effective_from: 2025-04-15
+    bands:
+      - {max_price: 250, max_inclusive: false, tick: 0.01}   # < 250
+      - {max_price: 1000, tick: 0.05}                         # 250 - 1000
+      - {max_price: 5000, tick: 0.10}                         # >1000 - 5000
+      - {max_price: 10000, tick: 0.50}                        # >5000 - 10000
+      - {max_price: 20000, tick: 1.00}                        # >10000 - 20000
+      - {tick: 5.00}                                          # > 20000

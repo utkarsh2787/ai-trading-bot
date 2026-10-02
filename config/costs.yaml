@@ -1,7 +1,33 @@
 # Zerodha intraday equity (MIS) charges, per executed order, date-effective.
-# UNVERIFIED: seeded with current rates for all dates (decision 23). Add older
-# schedules (e.g. pre-Oct-2024 exchange rate, pre-Jul-2020 stamp duty) as needed.
-verified: false
+# NSE only: the backtest assumes NSE fills and NSE charges.
+exchange: NSE
+gst_on: [brokerage, exchange_txn, sebi_fee]   # STT and stamp duty are NOT in the GST base
+
+verification:
+  sebi_per_crore:
+    verified: true
+    source: "Zerodha contract note (checked by the user)"
+  gst_pct:
+    verified: true
+    source: "Zerodha contract note: 18% on brokerage + exchange txn + SEBI fee"
+  exchange_txn_pct:
+    verified: false
+    source: >-
+      Zerodha charges page (NSE 0.00297%). Not contract-note verified: the
+      verified note was a BSE trade (~0.00373%), which does not confirm the NSE rate.
+  brokerage_pct:
+    verified: false
+    source: "Zerodha charges page"
+  brokerage_cap:
+    verified: false
+    source: "Zerodha charges page"
+  stt_sell_pct:
+    verified: false
+    source: "Zerodha charges page"
+  stamp_buy_pct:
+    verified: false
+    source: "Zerodha charges page"
+
 schedules:
   - effective_from: 2000-01-01
     brokerage_pct: 0.0003         # 0.03% of order value
@@ -10,4 +36,4 @@ schedules:
     exchange_txn_pct: 0.0000297   # NSE equity, 0.00297%
     stamp_buy_pct: 0.00003        # 0.003% buy side
     sebi_per_crore: 10.0
-    gst_pct: 0.18                 # on brokerage + exchange txn + SEBI fee
+    gst_pct: 0.18

@@ -58,6 +58,9 @@ class KiteConfig(_Model):
     day_chunk_days: int = Field(gt=0, le=2000)
     max_retries: int = Field(ge=0)
     backoff_base_sec: float = Field(ge=0)
+    # Kite returns split/bonus/rights/spin-off/extraordinary-dividend adjusted
+    # candles (prices and volume) and offers no raw series; see docs/DATA_SOURCES.md.
+    price_basis: Literal["adjusted"]
 
 
 class LocalConfig(_Model):
@@ -66,6 +69,21 @@ class LocalConfig(_Model):
     daily_glob: str
     timezone: str
     columns: dict[str, str]
+    price_basis: Literal["raw", "adjusted"]
+
+
+class NSEConfig(_Model):
+    """Public NSE / niftyindices.com endpoints for reference data and bhavcopies."""
+
+    archives_base: str
+    www_base: str
+    niftyindices_base: str
+    user_agent: str
+    max_requests_per_sec: float = Field(gt=0)
+    timeout_sec: float = Field(gt=0)
+    max_retries: int = Field(ge=0)
+    bhavcopy_udiff_from: date  # first date of the new (UDiFF) CM bhavcopy format
+    series: list[str]  # equity series kept from bhavcopies / corporate actions
 
 
 class DataConfig(_Model):
@@ -73,9 +91,14 @@ class DataConfig(_Model):
     provider: Literal["kite", "local"]
     daily_history_start: date
     minute_history_start: date
+    deadjust_tolerance: float = Field(gt=0)  # max OHLC ratio dispersion vs bhavcopy
     index: IndexConfig
     kite: KiteConfig
     local: LocalConfig
+    nse: NSEConfig
+
+    def price_basis(self) -> str:
+        return self.kite.price_basis if self.provider == "kite" else self.local.price_basis
 
 
 class ReferenceConfig(_Model):
@@ -129,12 +152,16 @@ class SessionConfig(_Model):
 class FeaturesConfig(_Model):
     atr_period: int = Field(gt=0)
     min_daily_bars: int = Field(gt=0)
-    rv_lookback: int = Field(gt=0)
+    rv_lookback: int = Field(gt=0)  # valid sessions averaged for the RV baseline
+    rv_window_trading_days: int = Field(gt=0)  # search window for valid sessions
+    rv_min_valid_sessions: int = Field(gt=0)
 
     @model_validator(mode="after")
     def _warmup(self) -> FeaturesConfig:
         if self.min_daily_bars <= self.atr_period:
             raise ValueError("min_daily_bars must exceed atr_period")
+        if not self.rv_min_valid_sessions <= self.rv_lookback <= self.rv_window_trading_days:
+            raise ValueError("require rv_min_valid_sessions <= rv_lookback <= rv_window")
         return self
 
 
@@ -234,8 +261,16 @@ class PortfolioConfig(_Model):
 
 
 class TickBand(_Model):
-    min_price: float = Field(ge=0)
+    """Applies to prices up to ``max_price`` (None = no upper bound)."""
+
+    max_price: float | None = Field(default=None, gt=0)
+    max_inclusive: bool = True
     tick: float = Field(gt=0)
+
+    def contains_upper(self, price: float) -> bool:
+        if self.max_price is None:
+            return True
+        return price <= self.max_price if self.max_inclusive else price < self.max_price
 
 
 class TickRegime(_Model):
@@ -244,14 +279,21 @@ class TickRegime(_Model):
 
     @model_validator(mode="after")
     def _bands(self) -> TickRegime:
-        mins = [b.min_price for b in self.bands]
-        if not mins or mins[0] != 0 or mins != sorted(set(mins)):
-            raise ValueError("tick bands must start at 0 and strictly increase")
+        caps = [b.max_price for b in self.bands]
+        if not caps or caps[-1] is not None or None in caps[:-1]:
+            raise ValueError("tick bands: only the last band may (and must) be unbounded")
+        if caps[:-1] != sorted(set(caps[:-1])):
+            raise ValueError("tick bands must have strictly increasing max_price")
         return self
+
+    def tick_for(self, ref_price: float) -> float:
+        return next(b.tick for b in self.bands if b.contains_upper(ref_price))
 
 
 class TickTable(_Model):
     verified: bool
+    reference_price: Literal["prev_month_last_close"]
+    source: str
     regimes: list[TickRegime]
 
     @model_validator(mode="after")
@@ -273,8 +315,15 @@ class CostSchedule(_Model):
     gst_pct: float = Field(ge=0)
 
 
-class CostTable(_Model):
+class FieldVerification(_Model):
     verified: bool
+    source: str
+
+
+class CostTable(_Model):
+    exchange: Literal["NSE"]
+    gst_on: list[Literal["brokerage", "exchange_txn", "sebi_fee"]]
+    verification: dict[str, FieldVerification]
     schedules: list[CostSchedule]
 
     @model_validator(mode="after")
@@ -282,7 +331,14 @@ class CostTable(_Model):
         dates = [s.effective_from for s in self.schedules]
         if not dates or dates != sorted(set(dates)):
             raise ValueError("cost schedules must have strictly increasing effective_from")
+        rate_fields = set(CostSchedule.model_fields) - {"effective_from"}
+        if set(self.verification) != rate_fields:
+            raise ValueError(f"cost verification must cover exactly {sorted(rate_fields)}")
         return self
+
+    @property
+    def unverified(self) -> list[str]:
+        return sorted(k for k, v in self.verification.items() if not v.verified)
 
 
 class ExecutionConfig(_Model):
@@ -290,6 +346,10 @@ class ExecutionConfig(_Model):
     slippage_pct: float = Field(ge=0)
     stress_multipliers: list[float]
     tick_rounding: Literal["adverse"]
+    # NSE only: fills and charges assume NSE. Any future live order must set
+    # exchange=NSE explicitly (Kite's default routing could pick BSE).
+    exchange: Literal["NSE"]
+    round_stt_stamp_to_rupee: bool  # contract-note rounding, aggregated per day
     entry_candle_stop_check_variants: list[bool]
     tick_table: str
     cost_table: str
@@ -302,9 +362,16 @@ class DQConfig(_Model):
     expected_candles: int = Field(gt=0)
     max_missing_minutes_warn: int = Field(ge=0)
     max_missing_minutes_error: int = Field(ge=0)
-    volume_spike_mult: float = Field(gt=1)
-    overnight_gap_error: float = Field(gt=0)
+    volume_spike_mult: float = Field(gt=1)  # warn only: high RV is a scoring input
+    overnight_gap_warn: float = Field(gt=0)  # news gaps are kept (warn)
+    overnight_gap_error: float = Field(gt=0)  # on the adjusted series
     daily_minute_tolerance: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _gaps(self) -> DQConfig:
+        if self.overnight_gap_warn >= self.overnight_gap_error:
+            raise ValueError("overnight_gap_warn must be below overnight_gap_error")
+        return self
 
 
 class ValidationConfig(_Model):
@@ -366,7 +433,12 @@ def load_config(path: str | Path) -> Config:
     raw["ticks"] = _read_yaml(base / execution["tick_table"])
     raw["costs"] = _read_yaml(base / execution["cost_table"])
     cfg = Config.model_validate(raw)
-    for name, table in (("tick table", cfg.ticks), ("cost table", cfg.costs)):
-        if not table.verified:
-            warnings.warn(f"{name} is marked unverified", UserWarning, stacklevel=2)
+    if not cfg.ticks.verified:
+        warnings.warn("tick table is marked unverified", UserWarning, stacklevel=2)
+    if cfg.costs.unverified:
+        warnings.warn(
+            f"cost table has unverified fields: {', '.join(cfg.costs.unverified)}",
+            UserWarning,
+            stacklevel=2,
+        )
     return cfg

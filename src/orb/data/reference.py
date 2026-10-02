@@ -14,7 +14,10 @@ import polars as pl
 from orb.config import ReferenceConfig
 
 ACTION_TYPES = {"split", "bonus", "rights", "demerger", "merger", "dividend", "other"}
-PRICE_ADJUSTING = {"split", "bonus", "rights", "demerger"}  # must carry a price_factor
+# Splits and bonuses always carry a price_factor. Rights/demerger factors are
+# optional (they need prices); without one the ex-date is still excluded and
+# the DQ gap check flags any unadjusted jump.
+REQUIRES_FACTOR = {"split", "bonus"}
 SESSION_TYPES = {"muhurat", "mock", "dr", "special", "other"}
 
 SCHEMAS: dict[str, dict[str, pl.DataType]] = {
@@ -32,6 +35,7 @@ SCHEMAS: dict[str, dict[str, pl.DataType]] = {
         "old_symbol": pl.String(),
         "new_symbol": pl.String(),
         "effective_date": pl.Date(),
+        "change_type": pl.String(),  # rename | merger (optional column, default rename)
     },
     "expiries": {"date": pl.Date(), "expiry_type": pl.String()},
     "results_dates": {"symbol": pl.String(), "date": pl.Date()},
@@ -76,7 +80,10 @@ def load_table(name: str, path: Path, required: bool) -> pl.DataFrame:
         if required:
             raise ReferenceError(f"required reference table {name!r} not found at {path}")
         return pl.DataFrame(schema=SCHEMAS[name])
-    df = _cast(_read(path), SCHEMAS[name], name)
+    raw = _read(path)
+    if name == "symbol_map" and "change_type" not in raw.columns:
+        raw = raw.with_columns(change_type=pl.lit("rename"))
+    df = _cast(raw, SCHEMAS[name], name)
     return _validate(name, df)
 
 
@@ -87,7 +94,7 @@ def _validate(name: str, df: pl.DataFrame) -> pl.DataFrame:
         if bad:
             raise ReferenceError(f"corporate_actions: unknown action_type {sorted(bad)}")
         need = df.filter(
-            pl.col("action_type").is_in(list(PRICE_ADJUSTING)) & pl.col("price_factor").is_null()
+            pl.col("action_type").is_in(list(REQUIRES_FACTOR)) & pl.col("price_factor").is_null()
         )
         if need.height:
             raise ReferenceError(
@@ -100,6 +107,11 @@ def _validate(name: str, df: pl.DataFrame) -> pl.DataFrame:
         bad = set(df["session_type"].unique()) - SESSION_TYPES
         if bad:
             raise ReferenceError(f"special_sessions: unknown session_type {sorted(bad)}")
+    if name == "symbol_map":
+        df = df.with_columns(pl.col("change_type").str.to_lowercase())
+        bad = set(df["change_type"].unique()) - {"rename", "merger"}
+        if bad:
+            raise ReferenceError(f"symbol_map: unknown change_type {sorted(bad)}")
     if name in ("ban_list", "results_dates"):
         df = df.unique(maintain_order=True)
     return df.sort(df.columns[:2])
@@ -191,6 +203,43 @@ def members_on(intervals: pl.DataFrame, day) -> list[str]:
         .sort()
         .to_list()
     )
+
+
+# ---------------------------------------------------------------- symbol map
+
+
+class SymbolResolver:
+    """Follows ``symbol_map`` forward in time from a historical symbol.
+
+    ``chain("LTI")`` -> ``[("LTIM", "rename", 2022-12-05), ("LTM", "rename", 2026-02-27)]``.
+    A merger ends the chain: the old company's prices are NOT the acquirer's.
+    """
+
+    def __init__(self, symbol_map: pl.DataFrame):
+        self._next: dict[str, tuple[str, str, object]] = {}
+        for r in symbol_map.sort("effective_date").to_dicts():
+            self._next[r["old_symbol"]] = (r["new_symbol"], r["change_type"], r["effective_date"])
+
+    def chain(self, symbol: str) -> list[tuple[str, str, object]]:
+        out, seen, cur = [], {symbol}, symbol
+        while cur in self._next:
+            new, kind, eff = self._next[cur]
+            out.append((new, kind, eff))
+            if kind == "merger" or new in seen:
+                break
+            seen.add(new)
+            cur = new
+        return out
+
+    def classify(self, symbol: str) -> tuple[str, str | None]:
+        """('renamed', latest_symbol) | ('merged', acquirer) | ('delisted', None)."""
+        ch = self.chain(symbol)
+        if not ch:
+            return "delisted", None
+        merged = [c for c in ch if c[1] == "merger"]
+        if merged:
+            return "merged", merged[0][0]
+        return "renamed", ch[-1][0]
 
 
 # ------------------------------------------------------------------------ bundle

@@ -86,10 +86,31 @@ def test_each_defect_detected(cfg, mutate, expected):
     assert expected in found
 
 
-def test_index_skips_volume_checks(cfg):
-    df = minute_session("NIFTY 200", DAY, seed=1).with_columns(volume=pl.lit(0, pl.Int64))
-    found, _ = _checks(df, cfg, is_index=True)
+@pytest.mark.parametrize("volume", [pl.lit(0, pl.Int64), pl.lit(None, pl.Int64)])
+def test_valid_index_day_not_excluded(cfg, volume):
+    """Nifty 200 / Nifty 50 candles carry zero or missing volume; that is valid."""
+    df = minute_session("NIFTY 200", DAY, seed=1).with_columns(volume=volume)
+    found, issues = _checks(df, cfg, is_index=True)
     assert found == set()
+    assert excluded_stock_days(issues).height == 0
+    daily = pl.DataFrame(
+        {
+            "symbol": ["NIFTY 200"],
+            "date": [DAY],
+            "open": [df["open"][0]],
+            "high": [df["high"].max()],
+            "low": [df["low"].min()],
+            "close": [df["close"][-1]],
+            "volume": [0],
+        }
+    )
+    assert check_daily(daily, NO_ACTIONS, cfg.dq, is_index=True).height == 0
+
+
+def test_same_day_with_null_volume_is_error_for_stocks(cfg):
+    df = minute_session("A", DAY, seed=1).with_columns(volume=pl.lit(None, pl.Int64))
+    found, _ = _checks(df, cfg)
+    assert ("null_values", "error") in found
 
 
 def test_special_session_skips_completeness(cfg):
@@ -106,21 +127,64 @@ def test_excluded_stock_days_only_errors(cfg):
     assert excluded_stock_days(issues).to_dicts() == [{"symbol": "B", "date": DAY}]
 
 
-def test_daily_unexplained_gap_vs_corporate_action(cfg):
+def _gapped(mult: float):
     d = daily_bars("A", date(2024, 1, 1), 10, vol_pct=0.001)
     gap_day = d["date"][5]
     d = d.with_columns(
         *(
-            pl.when(pl.col("date") >= gap_day).then(pl.col(c) * 0.5).otherwise(pl.col(c)).alias(c)
+            pl.when(pl.col("date") >= gap_day).then(pl.col(c) * mult).otherwise(pl.col(c)).alias(c)
             for c in ("open", "high", "low", "close")
         )
     )
-    issues = check_daily(d, NO_ACTIONS, cfg.dq)
-    assert issues.filter(pl.col("check") == "unexplained_gap")["date"].to_list() == [gap_day]
-    acts = pl.DataFrame(
-        {"symbol": ["A"], "ex_date": [gap_day], "action_type": ["bonus"], "price_factor": [0.5]}
+    return d, gap_day
+
+
+def _acts(day, factor, kind="bonus"):
+    return pl.DataFrame(
+        {"symbol": ["A"], "ex_date": [day], "action_type": [kind], "price_factor": [factor]}
     )
-    assert check_daily(d, acts, cfg.dq).filter(pl.col("check") == "unexplained_gap").height == 0
+
+
+def test_news_gap_is_warning_and_not_excluded(cfg):
+    d, gap_day = _gapped(1.15)  # +15% news gap, no corporate action
+    issues = check_daily(d, NO_ACTIONS, cfg.dq)
+    assert issues.filter(pl.col("check") == "news_gap")["date"].to_list() == [gap_day]
+    assert set(issues["severity"]) == {"warn"}
+    assert excluded_stock_days(issues).height == 0
+
+
+def test_extreme_gap_without_action_is_error(cfg):
+    d, gap_day = _gapped(0.70)  # -30%
+    issues = check_daily(d, NO_ACTIONS, cfg.dq)
+    assert issues.filter(pl.col("check") == "extreme_gap")["date"].to_list() == [gap_day]
+    assert excluded_stock_days(issues)["date"].to_list() == [gap_day]
+
+
+def test_known_bonus_explains_raw_gap(cfg):
+    d, gap_day = _gapped(0.5)  # raw 1:1 bonus drop
+    assert (
+        check_daily(d, _acts(gap_day, 0.5), cfg.dq).filter(pl.col("severity") == "error").height
+        == 0
+    )
+
+
+def test_price_looks_unadjusted_relative_to_known_ratio(cfg):
+    d, gap_day = _gapped(0.5)  # 1:1 bonus in the data ...
+    issues = check_daily(d, _acts(gap_day, 0.2), cfg.dq)  # ... but file says 1:4
+    assert issues.filter(pl.col("check") == "adjustment_mismatch")["date"].to_list() == [gap_day]
+    # data already adjusted by the vendor while our file applies the ratio again
+    d_adj, _ = _gapped(1.0)
+    issues = check_daily(d_adj, _acts(gap_day, 0.5), cfg.dq)
+    assert issues.filter(pl.col("check") == "adjustment_mismatch").height == 1
+
+
+def test_volume_spike_is_warning_only(cfg):
+    df = minute_session("A", DAY, seed=1).with_columns(
+        volume=pl.when(pl.int_range(pl.len()) == 20).then(10**8).otherwise("volume")
+    )
+    _, issues = _checks(df, cfg)
+    assert issues["check"].to_list() == ["volume_spike"]
+    assert excluded_stock_days(issues).height == 0
 
 
 def test_daily_duplicates_and_bad_ohlc(cfg):
