@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+import numpy as np
 import polars as pl
 
 from orb.refdata.nifty200 import _parse_date
@@ -100,3 +101,55 @@ def find_candidates(
     return df.sort("effective_date", "old_symbol").unique(
         subset=["old_symbol", "new_symbol"], keep="first", maintain_order=True
     )
+
+
+def index_gaps(
+    cands: pl.DataFrame, membership: pl.DataFrame, trading_days: list[date]
+) -> pl.DataFrame:
+    """Add each target's Nifty 200 exit date and its gap to the price-history end.
+
+    * ``index_exit_date``: the date the target left **Nifty 200**, from the
+      rebuilt membership (i.e. the Nifty 200 sections of the index press
+      releases). Universe membership follows this date only.
+    * ``index_release_date`` (the date quoted in the merger's release) is a
+      cross-check: that release may concern other indices (e.g. IDFC left Nifty 200
+      in 2018 but its 2024 merger release covers Nifty 500 etc.).
+      ``release_applies_to_nifty200`` is true when the two agree within 5 days.
+    * ``effective_date`` (day after the last trade) ends the price history and
+      the symbol mapping only.
+    * ``gap_trading_days``: trading days from index exit to effective_date.
+    """
+    last_member = membership.group_by("symbol").agg(
+        _vt=pl.col("valid_to").max(), _open=pl.col("valid_to").is_null().any()
+    )
+    c = cands.with_columns(pl.col("effective_date", "index_release_date").cast(pl.Date)).join(
+        last_member, left_on="old_symbol", right_on="symbol", how="left"
+    )
+    c = c.with_columns(
+        index_exit_date=pl.when(pl.col("_open").fill_null(True))
+        .then(None)
+        .otherwise(pl.col("_vt") + pl.duration(days=1)),
+        nifty200_status=pl.when(pl.col("_vt").is_null() & pl.col("_open").is_null())
+        .then(pl.lit("never_a_member"))
+        .when(pl.col("_open").fill_null(False))
+        .then(pl.lit("still_a_member"))
+        .otherwise(pl.lit("left_index")),
+    )
+    cal = np.array(sorted(trading_days), dtype="datetime64[D]")
+
+    def gap(a: date | None, b: date | None) -> int | None:
+        if a is None or b is None:
+            return None
+        lo, hi = sorted((np.datetime64(a, "D"), np.datetime64(b, "D")))
+        n = int(np.searchsorted(cal, hi) - np.searchsorted(cal, lo))
+        return n if b >= a else -n
+
+    c = c.with_columns(
+        gap_trading_days=pl.struct("index_exit_date", "effective_date").map_elements(
+            lambda r: gap(r["index_exit_date"], r["effective_date"]), return_dtype=pl.Int64
+        ),
+        release_vs_index_exit_days=pl.struct("index_release_date", "index_exit_date").map_elements(
+            lambda r: gap(r["index_release_date"], r["index_exit_date"]), return_dtype=pl.Int64
+        ),
+    ).with_columns(release_applies_to_nifty200=pl.col("release_vs_index_exit_days").abs() <= 5)
+    return c.drop("_vt", "_open")

@@ -216,3 +216,21 @@ def test_scanner_depends_only_on_scorer_interface(cfg):
     r = scan(m, T, ConstantScorer()).row(0, named=True)
     assert r["score"] == 70 and r["scorer"] == "const" and r["decision"] == QUALIFIED
     assert r["s_breakout"] is None  # no explain() -> no components
+
+
+def test_stock_removed_from_index_but_still_trading_is_not_in_universe(cfg):
+    """Index membership follows the index change date; a later last-trade date
+    (merger effective date) only ends the price history."""
+    m, T = golden_market(cfg)
+    removal = T  # removed from Nifty 200 effective T (valid_to = T - 1)
+    mem = m.membership().with_columns(valid_to=pl.lit(m.calendar[-2]))
+    m.membership = lambda: mem
+    inputs = m.builder().day(removal)
+    assert inputs.stocks == [] and inputs.no_data == []  # not eligible, not a coverage gap
+    assert scan(m, removal).height == 0  # it still trades (minute bars exist) but is skipped
+    assert m.minute.filter(pl.col("ts").dt.date() == removal).height > 0
+    # the day before removal it was still a member and is scanned
+    m2, _ = golden_market(cfg)
+    mem2 = m2.membership().with_columns(valid_to=pl.lit(T))
+    m2.membership = lambda: mem2
+    assert scan(m2, T).height == 1

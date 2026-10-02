@@ -1,20 +1,20 @@
-old_symbol,new_symbol,effective_date,index_release_date,old_last_traded,source,evidence,needs_review
-BHARATFIN,INDUSINDBK,2019-07-03,,2019-07-02,ind_prs14122018.pdf p.1,amalgamation of Bharat Financial Inclusion Ltd. into IndusInd Bank Ltd. ,true
-MONSANTO,BAYERCROP,2019-09-27,,2019-09-26,ind_prs13062019.pdf p.1,amalgamation of Monsanto India Ltd into Bayer CropScience Ltd. ,true
-ALBK,INDIANB,2020-03-20,,2020-03-19,ind_prs16122019.pdf p.3,amalgamation of Allahabad Bank into Indian Bank. ,true
-ORIENTBANK,PNB,2020-03-21,,2020-03-20,ind_prs16122019.pdf p.2,amalgamation of Oriental Bank of Commerce into Punjab National Bank. ,true
-MAXINDIA,MAXHEALTH,2020-06-12,,2020-06-11,ind_prs16122019.pdf p.2,amalgamation of Max India Ltd. into Max Healthcare Institute Ltd. ,true
-MINDTREE,LTI,2022-11-23,,2022-11-22,ind_prs16092022.pdf p.1,amalgamation of Mindtree Ltd. with Larsen & Toubro Infotech Ltd. ,true
-SHRIRAMCIT,SRTRANSFIN,2022-11-29,2022-08-08,2022-11-28,ind_prs11072022.pdf p.1,amalgamation of Shriram City Union Finance Ltd. with Shriram Transport Finance Company Ltd. ,true
-EQUITAS,EQUITASBNK,2023-02-03,,2023-02-02,ind_prs16092022.pdf p.1,amalgamation of Equitas Holdings Ltd. with Equitas Small Finance Bank Ltd. ,true
-INOXLEISUR,PVR,2023-02-17,,2023-02-16,ind_prs09022023_1.pdf p.1,amalgamation of INOX Leisure Ltd. with PVR Ltd. ,true
-HDFC,HDFCBANK,2023-07-13,2023-07-13,2023-07-12,ind_prs04072023.pdf p.1,amalgamation of Housing Development Finance Corporation Ltd. with HDFC Bank Ltd. ,true
-TINPLATE,TATASTEEL,2024-01-19,2024-01-19,2024-01-18,ind_prs10012024.pdf p.1,amalgamation of Tinplate Company of India Ltd. with Tata Steel Ltd. ,true
-TATAMETALI,TATASTEEL,2024-02-06,2024-02-06,2024-02-05,ind_prs30012024.pdf p.1,amalgamation of Tata Metaliks Ltd. with Tata Steel Ltd. ,true
-UJJIVAN,UJJIVANSFB,2024-05-03,2024-05-03,2024-05-02,ind_prs24042024_1.pdf p.1,amalgamation of Ujjivan Financial Services Ltd. with Ujjivan Small Finance Bank Ltd. ,true
-IDFC,IDFCFIRSTB,2024-10-10,2024-10-10,2024-10-09,ind_prs04102024.pdf p.1,amalgamation of IDFC Ltd. with IDFC First Bank Ltd. ,true
-TV18BRDCST,NETWORK18,2024-10-16,2024-10-16,2024-10-15,ind_prs10102024.pdf p.1,amalgamation of TV18 Broadcast Ltd. with Network18 Media & Investments Ltd. ,true
-PEL,PIRAMALFIN,2025-09-23,2025-09-23,2025-09-22,ind_prs15092025_1.pdf p.1,amalgamation of Piramal Enterprises Ltd. with Piramal Finance Ltd. ,true
-GSPL,GUJGASLTD,2026-05-12,2026-05-12,2026-05-11,ind_prs04052026.pdf p.1,amalgamation of Gujarat State Petronet Ltd. into Gujarat Gas Ltd. ,true
-CIGNITITEC,COFORGE,2026-05-15,2026-05-15,2026-05-14,ind_prs08052026.pdf p.1,amalgamation of Cigniti Technologies Ltd. into Coforge Ltd. ,true
-JBCHEPHARM,TORNTPHARM,2026-07-17,2026-07-17,2026-07-16,ind_prs13072026_1.pdf p.1,amalgamation of J.B. Chemicals & Pharmaceuticals Ltd. into Torrent Pharmaceuticals Ltd. ,true
+old_symbol,new_symbol,effective_date,index_release_date,old_last_traded,source,evidence,needs_review,index_exit_date,nifty200_status,gap_trading_days,release_vs_index_exit_days,release_applies_to_nifty200
+BHARATFIN,INDUSINDBK,2019-07-03,,2019-07-02,ind_prs14122018.pdf p.1,amalgamation of Bharat Financial Inclusion Ltd. into IndusInd Bank Ltd. ,true,2018-12-28,left_index,126,,
+MONSANTO,BAYERCROP,2019-09-27,,2019-09-26,ind_prs13062019.pdf p.1,amalgamation of Monsanto India Ltd into Bayer CropScience Ltd. ,true,,never_a_member,,,
+ALBK,INDIANB,2020-03-20,,2020-03-19,ind_prs16122019.pdf p.3,amalgamation of Allahabad Bank into Indian Bank. ,true,2019-12-27,left_index,58,,
+ORIENTBANK,PNB,2020-03-21,,2020-03-20,ind_prs16122019.pdf p.2,amalgamation of Oriental Bank of Commerce into Punjab National Bank. ,true,2019-12-27,left_index,59,,
+MAXINDIA,MAXHEALTH,2020-06-12,,2020-06-11,ind_prs16122019.pdf p.2,amalgamation of Max India Ltd. into Max Healthcare Institute Ltd. ,true,,never_a_member,,,
+MINDTREE,LTI,2022-11-23,,2022-11-22,ind_prs16092022.pdf p.1,amalgamation of Mindtree Ltd. with Larsen & Toubro Infotech Ltd. ,true,2022-09-30,left_index,35,,
+SHRIRAMCIT,SRTRANSFIN,2022-11-29,2022-08-08,2022-11-28,ind_prs11072022.pdf p.1,amalgamation of Shriram City Union Finance Ltd. with Shriram Transport Finance Company Ltd. ,true,,never_a_member,,,
+EQUITAS,EQUITASBNK,2023-02-03,,2023-02-02,ind_prs16092022.pdf p.1,amalgamation of Equitas Holdings Ltd. with Equitas Small Finance Bank Ltd. ,true,,never_a_member,,,
+INOXLEISUR,PVR,2023-02-17,,2023-02-16,ind_prs09022023_1.pdf p.1,amalgamation of INOX Leisure Ltd. with PVR Ltd. ,true,,never_a_member,,,
+HDFC,HDFCBANK,2023-07-13,2023-07-13,2023-07-12,ind_prs04072023.pdf p.1,amalgamation of Housing Development Finance Corporation Ltd. with HDFC Bank Ltd. ,true,2023-07-13,left_index,0,0,true
+TINPLATE,TATASTEEL,2024-01-19,2024-01-19,2024-01-18,ind_prs10012024.pdf p.1,amalgamation of Tinplate Company of India Ltd. with Tata Steel Ltd. ,true,,never_a_member,,,
+TATAMETALI,TATASTEEL,2024-02-06,2024-02-06,2024-02-05,ind_prs30012024.pdf p.1,amalgamation of Tata Metaliks Ltd. with Tata Steel Ltd. ,true,,never_a_member,,,
+UJJIVAN,UJJIVANSFB,2024-05-03,2024-05-03,2024-05-02,ind_prs24042024_1.pdf p.1,amalgamation of Ujjivan Financial Services Ltd. with Ujjivan Small Finance Bank Ltd. ,true,,never_a_member,,,
+IDFC,IDFCFIRSTB,2024-10-10,2024-10-10,2024-10-09,ind_prs04102024.pdf p.1,amalgamation of IDFC Ltd. with IDFC First Bank Ltd. ,true,2018-09-28,left_index,1486,-1486,false
+TV18BRDCST,NETWORK18,2024-10-16,2024-10-16,2024-10-15,ind_prs10102024.pdf p.1,amalgamation of TV18 Broadcast Ltd. with Network18 Media & Investments Ltd. ,true,2019-03-29,left_index,1367,-1367,false
+PEL,PIRAMALFIN,2025-09-23,2025-09-23,2025-09-22,ind_prs15092025_1.pdf p.1,amalgamation of Piramal Enterprises Ltd. with Piramal Finance Ltd. ,true,2024-09-30,left_index,243,-243,false
+GSPL,GUJGASLTD,2026-05-12,2026-05-12,2026-05-11,ind_prs04052026.pdf p.1,amalgamation of Gujarat State Petronet Ltd. into Gujarat Gas Ltd. ,true,2023-03-31,left_index,763,-763,false
+CIGNITITEC,COFORGE,2026-05-15,2026-05-15,2026-05-14,ind_prs08052026.pdf p.1,amalgamation of Cigniti Technologies Ltd. into Coforge Ltd. ,true,,never_a_member,,,
+JBCHEPHARM,TORNTPHARM,2026-07-17,2026-07-17,2026-07-16,ind_prs13072026_1.pdf p.1,amalgamation of J.B. Chemicals & Pharmaceuticals Ltd. into Torrent Pharmaceuticals Ltd. ,true,,never_a_member,,,

@@ -272,3 +272,24 @@ def test_criteria_all_pass_and_each_can_fail(cfg):
     few = trades.filter(pl.col("date").dt.year() == 2018).head(40)
     crit, verdict = reports.criteria(few, {"p_value": 0.01}, labels, cfg, oos=True)
     assert verdict.startswith("OOS VERDICT (V1): ")
+
+
+def test_secondary_sign_flip_never_affects_pass_fail(cfg):
+    trades, labels = _synthetic()
+    good = {"p_value": 0.01, "secondary_sign_flip": {"p_value": 0.99}}
+    bad = {"p_value": 0.20, "secondary_sign_flip": {"p_value": 0.0}}
+    assert reports.criteria(trades, good, labels, cfg, oos=False)[0][2].passed
+    assert not reports.criteria(trades, bad, labels, cfg, oos=False)[0][2].passed
+
+
+def test_report_labels_secondary_null_as_excluded(run, cfg):
+    _, out = run
+    tags = reports.RegimeTags(
+        vix=pl.DataFrame(schema={"date": pl.Date, "vix_tercile": pl.String}),
+        trend=pl.DataFrame(schema={"date": pl.Date, "trend_day": pl.Boolean}),
+        expiry=pl.DataFrame(schema={"date": pl.Date, "is_expiry": pl.Boolean}),
+        results=pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date}),
+    )
+    md = (reports.build_report(out, cfg, tags) / "report.md").read_text()
+    assert "Secondary diagnostic: strict sign flip" in md
+    assert "Excluded from pass/fail" in md

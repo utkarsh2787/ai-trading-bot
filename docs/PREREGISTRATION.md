@@ -74,3 +74,16 @@ config hash above.
   universe definition) creates a new version, **V1.1**. It needs its own
   pre-registration and its own new OOS test. The V1 OOS result stands as
   reported.
+
+## Amendments (all made before any real-data run)
+
+### 2026-10-02: secondary null is diagnostic only
+
+- Criterion c is decided **only** by the mirrored-stop null described above.
+- The strict sign flip at the actual exit time (−gross − costs per trade, same
+  coin-flip procedure) is reported in `report.md` under "Secondary diagnostic"
+  and is **explicitly excluded from pass/fail** for every criterion, in-sample
+  and OOS.
+- No config value changed. The config hash stays
+  `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
+

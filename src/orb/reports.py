@@ -497,7 +497,19 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     ]
     for k, v in regimes.items():
         lines += [f"### {k}", _md(v)]
-    lines += ["## Random-direction null (primary book)", "```", json.dumps(nt, indent=1), "```", ""]
+    primary_null = {k: v for k, v in nt.items() if k != "secondary_sign_flip"}
+    lines += [
+        "## Random-direction null (primary book): criterion c",
+        "```",
+        json.dumps(primary_null, indent=1),
+        "```",
+        "### Secondary diagnostic: strict sign flip at the actual exit time",
+        "_Excluded from pass/fail (pre-registration amendment 2026-10-02)._",
+        "```",
+        json.dumps(nt.get("secondary_sign_flip", {}), indent=1),
+        "```",
+        "",
+    ]
     for k, v in sv.items():
         lines += [f"## Score validity: {k}", _md(v)]
     (out / "report.md").write_text("\n".join(lines))

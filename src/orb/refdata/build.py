@@ -216,6 +216,12 @@ class RefBuilder:
             else set()
         )
         cands = mergers.find_candidates(self.press_texts(), last, renamed, max(last.values()))
+        mpath = self.cfg.reference.path("membership")
+        if mpath.exists():
+            from orb.data.reference import load_membership
+
+            days = raw.read_daily("RELIANCE", date(1990, 1, 1), date(2100, 1, 1))["date"]
+            cands = mergers.index_gaps(cands, load_membership(mpath), days.to_list())
         path = self.root / MANUAL_DIR / MERGERS
         if path.exists():  # keep the user's rows; add only new candidates
             have = pl.read_csv(path, infer_schema_length=0)
