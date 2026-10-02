@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from orb import csvio
 from orb.config import Config
 from orb.portfolio import TAKEN
 
@@ -449,11 +450,11 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     out.mkdir(exist_ok=True)
 
     trades = trade_log(book, cfg) if book.height else pl.DataFrame()
-    trades.write_csv(out / "trade_log.csv")
+    csvio.write_csv(trades, out / "trade_log.csv")
     if (run / "signal_log.csv").exists():
         (out / "signal_log.csv").write_bytes((run / "signal_log.csv").read_bytes())
     summ = summary(trades) if trades.height else pl.DataFrame()
-    summ.write_csv(out / "summary.csv")
+    csvio.write_csv(summ, out / "summary.csv")
     prim = (
         trades.filter((pl.col("variant") == PRIMARY[0]) & (pl.col("slippage_mult") == PRIMARY[1]))
         if trades.height
@@ -461,7 +462,7 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
     )
     regimes = regime_tables(prim, tags) if prim.height else {}
     for k, v in regimes.items():
-        v.write_csv(out / f"regime_{k}.csv")
+        csvio.write_csv(v, out / f"regime_{k}.csv")
     nt = null_test(null, cfg.validation.null_bootstrap, cfg.run.seed) if null.height else {}
     (out / "null.json").write_text(json.dumps(nt, indent=1))
     sv = (
@@ -472,8 +473,7 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
         else {}
     )
     for k, v in sv.items():
-        v.write_csv(out / f"{k}.csv")
-
+        csvio.write_csv(v, out / f"{k}.csv")
     crit, verdict = criteria(trades, nt, labels, cfg, bool(meta.get("oos")))
     (out / "criteria.json").write_text(
         json.dumps({"verdict": verdict, "criteria": [c.__dict__ for c in crit]}, indent=1)

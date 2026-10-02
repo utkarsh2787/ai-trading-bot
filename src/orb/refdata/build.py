@@ -13,6 +13,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import csvio
 from orb.config import Config
 from orb.data.store import ParquetStore
 from orb.refdata import nifty200, nse
@@ -45,7 +46,7 @@ class RefBuilder:
     def _write(self, df: pl.DataFrame, name: str) -> Path:
         path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        df.write_csv(path)
+        csvio.write_csv(df, path)
         log.info("wrote %s (%d rows)", path, df.height)
         return path
 
@@ -56,7 +57,7 @@ class RefBuilder:
         mpath = self.root / MANUAL_DIR / MERGERS
         parts = [renames]
         if mpath.exists():
-            m = pl.read_csv(mpath, infer_schema_length=0)
+            m = csvio.read_csv(mpath, infer_schema_length=0)
             if "needs_review" in m.columns:  # only reviewed rows are applied
                 m = m.filter(
                     pl.col("needs_review").str.to_lowercase().is_in(["false", "0", ""])
@@ -81,7 +82,7 @@ class RefBuilder:
         )
         if not cur:
             raise RuntimeError("could not fetch current Nifty 200 constituents")
-        current = pl.read_csv(cur, infer_schema_length=0)["Symbol"].str.strip_chars().to_list()
+        current = csvio.read_csv(cur, infer_schema_length=0)["Symbol"].str.strip_chars().to_list()
         html = self.fetch("nifty200", refresh=True).get(f"{base}/press-release")
         press = nifty200.equity_releases(
             nifty200.parse_press_list(html.decode("utf-8", "ignore"), base), since
@@ -134,7 +135,7 @@ class RefBuilder:
         self._write(auto.sort("effective_date", "symbol"), NIFTY_PARSED)
         mpath = self.root / MANUAL_DIR / NIFTY_MANUAL
         manual = (
-            pl.read_csv(mpath, infer_schema_length=0).with_columns(
+            csvio.read_csv(mpath, infer_schema_length=0).with_columns(
                 pl.col("effective_date").str.to_date()
             )
             if mpath.exists()
@@ -143,7 +144,7 @@ class RefBuilder:
         merged = nifty200.merge_manual(auto, manual)
         sm_path = self.cfg.reference.path("symbol_map")
         renames = (
-            pl.read_csv(sm_path, try_parse_dates=True).filter(pl.col("change_type") == "rename")
+            csvio.read_csv(sm_path, try_parse_dates=True).filter(pl.col("change_type") == "rename")
             if sm_path.exists()
             else pl.DataFrame(
                 schema={
@@ -245,7 +246,7 @@ class RefBuilder:
             raise RuntimeError("no bhavcopy in the raw store: run `orb ref bhavcopy` first")
         sm = self.cfg.reference.path("symbol_map")
         renamed = (
-            set(pl.read_csv(sm).filter(pl.col("change_type") == "rename")["old_symbol"])
+            set(csvio.read_csv(sm).filter(pl.col("change_type") == "rename")["old_symbol"])
             if sm.exists()
             else set()
         )
@@ -258,7 +259,7 @@ class RefBuilder:
             cands = mergers.index_gaps(cands, load_membership(mpath), days.to_list())
         path = self.root / MANUAL_DIR / MERGERS
         if path.exists():  # keep the user's rows; add only new candidates
-            have = pl.read_csv(path, infer_schema_length=0)
+            have = csvio.read_csv(path, infer_schema_length=0)
             known = set(zip(have["old_symbol"], have["new_symbol"], strict=True))
             new = cands.filter(
                 ~pl.struct("old_symbol", "new_symbol").map_elements(
@@ -269,7 +270,7 @@ class RefBuilder:
         else:
             merged = cands
         path.parent.mkdir(parents=True, exist_ok=True)
-        merged.write_csv(path)
+        csvio.write_csv(merged, path)
         log.info("mergers: %d candidates (%s)", cands.height, path)
         return cands
 
@@ -319,7 +320,7 @@ class RefBuilder:
         cpath = self.root / MANUAL_DIR / "special_session_candidates.csv"
         cands = {}
         if cpath.exists():
-            c = pl.read_csv(cpath, try_parse_dates=True)
+            c = csvio.read_csv(cpath, try_parse_dates=True)
             cands = dict(zip(c["date"].to_list(), c["label"].to_list(), strict=True))
         bhav = ss.bhav_flags(ss.market_turnover(raw))
         minute = None
@@ -329,7 +330,7 @@ class RefBuilder:
         dpath = self.root / MANUAL_DIR / "special_sessions_draft.csv"
         new = ss.draft(bhav, minute, cands)
         if dpath.exists():  # keep the user's review decisions for dates already drafted
-            old = pl.read_csv(dpath, try_parse_dates=True)
+            old = csvio.read_csv(dpath, try_parse_dates=True)
             keep = old.filter(pl.col("needs_review").cast(pl.String).str.to_lowercase() == "false")
             new = pl.concat(
                 [
@@ -353,7 +354,7 @@ class RefBuilder:
         src = self.root / MANUAL_DIR / name
         if not src.exists():
             return None
-        m = pl.read_csv(src, infer_schema_length=0)
+        m = csvio.read_csv(src, infer_schema_length=0)
         ok = m.filter(m["needs_review"].str.strip_chars().str.to_lowercase() == "false")
         pending = m.height - ok.height
         if pending:

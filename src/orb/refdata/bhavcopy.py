@@ -15,6 +15,7 @@ from datetime import date
 
 import polars as pl
 
+from orb import csvio
 from orb.data.schema import DAILY_SCHEMA, conform_daily, empty
 
 
@@ -55,9 +56,11 @@ def _keep_series(df: pl.DataFrame, series: list[str]) -> pl.DataFrame:
     )
 
 
-def parse(csv: bytes, series: list[str]) -> pl.DataFrame:
+def parse(csv: bytes, series: list[str], name: str | None = None) -> pl.DataFrame:
     """Either format -> canonical daily bars (raw prices) for the given series."""
-    df = pl.read_csv(io.BytesIO(csv), infer_schema_length=0, truncate_ragged_lines=True)
+    df = csvio.read_csv(
+        io.BytesIO(csv), name=name or "bhavcopy", infer_schema_length=0, truncate_ragged_lines=True
+    )
     df = df.rename({c: c.strip() for c in df.columns})
     if "TckrSymb" in df.columns:  # UDiFF
         df = df.select(

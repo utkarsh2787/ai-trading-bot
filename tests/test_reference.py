@@ -82,7 +82,7 @@ def test_required_missing_vs_optional_missing(tmp_path):
 
 def test_bad_date_rejected(tmp_path):
     p = _w(tmp_path / "ban.csv", "date,symbol\n2024-13-01,A\n")
-    with pytest.raises(ReferenceError, match="ban_list: cannot parse"):
+    with pytest.raises(ReferenceError, match=r"ban_list \(.*ban.csv\): cannot parse"):
         load_table("ban_list", p, required=True)
 
 

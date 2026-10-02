@@ -18,6 +18,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import csvio
 from orb.config import Config, load_config
 from orb.data import snapshot
 from orb.data.download import Downloader, Manifest
@@ -192,7 +193,7 @@ def cmd_coverage(cfg: Config, args: argparse.Namespace) -> None:
     cov, line = download_plan.coverage(snap.store, symbols)
     out = Path(cfg.data.root) / "_manifest" / f"coverage_{snap.id}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
-    cov.write_csv(out)
+    csvio.write_csv(cov, out)
     print(cov)
     print(line)
     print(f"per-symbol coverage written to {out}")
@@ -247,7 +248,7 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
     out.mkdir(parents=True, exist_ok=True)
     issues.write_parquet(out / "deadjust_issues.parquet")
     drift = report.drift_frame()
-    drift.write_csv(out / "factor_drift.csv")
+    csvio.write_csv(drift, out / "factor_drift.csv")
     if drift.height:
         log.warning(
             "factor drift: %d runs on %d symbols (see %s)",
@@ -268,6 +269,21 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
+    # reference CSVs first: a ragged row (e.g. an unquoted comma) must stop dq
+    # before anything is parsed with shifted columns
+    ragged = csvio.check_tree(cfg.reference.root)
+    out = Path(cfg.data.root) / "_dq"
+    csvio.write_csv(ragged, out / "ref_csv_issues.csv")
+    if ragged.height:
+        lines = [
+            f"  {r['file']}:{r['line']}: {r['fields']} fields, header has {r['expected']}"
+            for r in ragged.to_dicts()
+        ]
+        raise SystemExit(
+            "dq refused: ragged rows in reference CSVs (quote fields that "
+            "contain commas):\n" + "\n".join(lines)
+        )
+    log.info("reference CSVs: no ragged rows")
     ref = load_reference(cfg.reference)
     raw = Stores.raw_only(cfg.data.root)
     special = set(ref.special_sessions["date"].to_list())
@@ -311,10 +327,10 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
         orient="row",
     )
     gap = survivorship_gap(universe, minute_days)
-    gap.write_csv(out / "survivorship_gap.csv")
+    csvio.write_csv(gap, out / "survivorship_gap.csv")
     print(f"\n{survivorship_header(gap)}\n{gap}")
     for name, table in exclusion_report(excl, universe, vix).items():
-        table.write_csv(out / f"exclusions_{name}.csv")
+        csvio.write_csv(table, out / f"exclusions_{name}.csv")
         print(f"\nexcluded stock-days {name}:\n{table}")
 
 

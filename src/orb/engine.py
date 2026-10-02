@@ -22,7 +22,7 @@ from pathlib import Path
 
 import polars as pl
 
-from orb import invariants
+from orb import csvio, invariants
 from orb.config import Config
 from orb.context import ContextBuilder, DayInputs
 from orb.portfolio import TAKEN, allocate
@@ -319,10 +319,10 @@ def write_run(res: RunResult, cfg: Config, out_root: str | Path, meta: dict) -> 
     res.book.write_parquet(d / "book.parquet")
     res.null.write_parquet(d / "null.parquet")
     res.coverage.write_parquet(d / "coverage.parquet")
-    res.survivorship_gap().write_csv(d / "survivorship_gap.csv")
+    csvio.write_csv(res.survivorship_gap(), d / "survivorship_gap.csv")
     from orb import labels as lab
 
-    lab.signal_log(res.signals, res.book).write_csv(d / "signal_log.csv")
+    csvio.write_csv(lab.signal_log(res.signals, res.book), d / "signal_log.csv")
     lab.feature_snapshot(res.signals, meta.get("scorer", "rule_v1"), cfg.hash()).write_parquet(
         d / "features.parquet"
     )

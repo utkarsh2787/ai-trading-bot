@@ -17,6 +17,7 @@ from datetime import date, datetime, timedelta
 
 import polars as pl
 
+from orb import csvio
 from orb.config import NSEConfig
 from orb.data.schema import DAILY_SCHEMA, empty
 from orb.refdata import bhavcopy
@@ -279,7 +280,7 @@ def download_bhavcopy(
             if day.weekday() < 5:
                 missing.append(day)
             continue
-        parts.append(bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series))
+        parts.append(bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series, name=url))
     df = pl.concat(parts) if parts else empty(DAILY_SCHEMA)
     return df, missing
 
@@ -300,10 +301,15 @@ def fo_urls(cfg: NSEConfig, day: date) -> list[str]:
     return [udiff, legacy] if day >= cfg.bhavcopy_udiff_from else [legacy, udiff]
 
 
-def parse_fo_expiries(csv: bytes) -> pl.DataFrame:
+def parse_fo_expiries(csv: bytes, name: str | None = None) -> pl.DataFrame:
     """F&O bhavcopy (either format) -> distinct (underlying, kind, expiry);
     kind = 'index' | 'stock'."""
-    df = pl.read_csv(io.BytesIO(csv), infer_schema_length=0, truncate_ragged_lines=True)
+    df = csvio.read_csv(
+        io.BytesIO(csv),
+        name=name or "F&O bhavcopy",
+        infer_schema_length=0,
+        truncate_ragged_lines=True,
+    )
     df = df.rename({c: c.strip() for c in df.columns})
     if "FinInstrmTp" in df.columns:
         df = df.select(
@@ -374,7 +380,7 @@ def download_expiries(fetch: Fetcher, cfg: NSEConfig, start: date, end: date) ->
                     body = b
                     break
             if body is not None:
-                parts.append(parse_fo_expiries(bhavcopy.unzip_single(body)))
+                parts.append(parse_fo_expiries(bhavcopy.unzip_single(body), name=url))
                 break
         week += timedelta(days=7)
     if not parts:

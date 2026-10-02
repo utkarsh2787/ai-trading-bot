@@ -11,6 +11,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import csvio
 from orb.config import ReferenceConfig
 
 ACTION_TYPES = {"split", "bonus", "rights", "demerger", "merger", "dividend", "other"}
@@ -52,7 +53,7 @@ class ReferenceError(ValueError):
 def _read(path: Path) -> pl.DataFrame:
     if path.suffix == ".parquet":
         return pl.read_parquet(path)
-    return pl.read_csv(path, infer_schema_length=0)  # all strings; cast explicitly
+    return csvio.read_csv(path, infer_schema_length=0)  # all strings; cast explicitly
 
 
 def _cast(df: pl.DataFrame, schema: dict[str, pl.DataType], name: str) -> pl.DataFrame:
@@ -83,7 +84,7 @@ def load_table(name: str, path: Path, required: bool) -> pl.DataFrame:
     raw = _read(path)
     if name == "symbol_map" and "change_type" not in raw.columns:
         raw = raw.with_columns(change_type=pl.lit("rename"))
-    df = _cast(raw, SCHEMAS[name], name)
+    df = _cast(raw, SCHEMAS[name], f"{name} ({path})")
     return _validate(name, df)
 
 
@@ -142,7 +143,9 @@ def load_membership(path: Path) -> pl.DataFrame:
             pl.col("valid_to").cast(pl.String).str.strip_chars().replace("", None).str.to_date(),
         )
     elif {"date", "symbol"} <= cols:
-        snap = _cast(raw, {"date": pl.Date(), "symbol": pl.String()}, "membership").unique()
+        snap = _cast(
+            raw, {"date": pl.Date(), "symbol": pl.String()}, f"membership ({path})"
+        ).unique()
         dates = snap.select(pl.col("date").unique().sort())
         nxt = dates.with_columns((pl.col("date").shift(-1) - pl.duration(days=1)).alias("_until"))
         df = (

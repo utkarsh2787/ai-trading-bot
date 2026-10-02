@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import polars as pl
+from orb import csvio
 
 
 def pending_reviews(ref_root: str | Path) -> dict[str, list[str]]:
     """{file name: [row labels still needing review]} (empty dict = all reviewed)."""
     out: dict[str, list[str]] = {}
     for p in sorted((Path(ref_root) / "manual").glob("*.csv")):
-        df = pl.read_csv(p, infer_schema_length=0)
+        df = csvio.read_csv(p, infer_schema_length=0)
         if "needs_review" not in df.columns:
             continue
         v = df["needs_review"].fill_null("").str.strip_chars().str.to_lowercase()

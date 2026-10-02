@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import csvio
 from orb.config import LocalConfig
 from orb.data.provider import DataProvider, SymbolNotFound
 from orb.data.schema import conform_daily, conform_minute
@@ -16,7 +17,7 @@ def _read_any(path: Path) -> pl.DataFrame:
     if path.suffix == ".parquet":
         return pl.read_parquet(path)
     if path.suffix in (".csv", ".txt"):
-        return pl.read_csv(path, try_parse_dates=False, infer_schema_length=10_000)
+        return csvio.read_csv(path, try_parse_dates=False, infer_schema_length=10_000)
     raise ValueError(f"unsupported file type: {path}")
 
 

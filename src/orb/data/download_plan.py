@@ -18,6 +18,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import csvio
 from orb.config import Config
 from orb.data.download import Manifest
 from orb.data.kite import date_chunks
@@ -32,7 +33,7 @@ BYTES_PER_MINUTE_ROW = 14  # zstd parquet, observed order of magnitude
 def _col(path: Path, col: str) -> set[str]:
     if not path.exists():
         return set()
-    df = pl.read_csv(path, infer_schema_length=0)
+    df = csvio.read_csv(path, infer_schema_length=0)
     return set(df[col].str.strip_chars().drop_nulls()) if col in df.columns else set()
 
 
