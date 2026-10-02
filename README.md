@@ -18,8 +18,11 @@ uv run pytest
 
 ```bash
 uv run orb ref all             # NSE/niftyindices reference data + raw bhavcopy (resumable)
-export KITE_API_KEY=... KITE_ACCESS_TOKEN=...   # from your own daily login
-uv run orb download            # Kite bars, as delivered (adjusted) -> data/vendor/kite
+cp .env.example .env           # fill KITE_API_KEY / KITE_API_SECRET (gitignored)
+uv run orb login               # daily: browser login -> saves today's access token
+uv run orb download --plan     # symbols, ranges, requests, runtime (no Kite calls)
+uv run orb download            # resumable -> data/vendor/kite/snapshots/<id> + coverage
+uv run orb snapshot freeze     # make the snapshot immutable
 uv run orb build-raw           # de-adjust against the bhavcopy -> data/raw
 uv run orb dq                  # checks + exclusion report -> data/_dq/
 uv run orb scan                # first-breakout candidates (in-sample; OOS needs --oos)

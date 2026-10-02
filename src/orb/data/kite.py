@@ -152,16 +152,20 @@ class KiteProvider(DataProvider):
         return conform_daily(pl.DataFrame(rows).with_columns(symbol=pl.lit(symbol)))
 
 
-def client_from_env(cfg: KiteConfig) -> KiteClient:
-    """Build a KiteConnect client from env vars. The access token is obtained by
-    the user's own daily login; this code never automates login."""
+def client_from_env(cfg: KiteConfig, data_root: str = "data") -> KiteClient:
+    """KiteConnect client from KITE_API_KEY plus the access token from `orb login`
+    (or KITE_ACCESS_TOKEN). Login itself is the user's own interactive step."""
     from kiteconnect import KiteConnect  # optional dependency: `uv sync --extra kite`
 
+    from orb.data.kite_auth import KiteAuthError, access_token
+
+    api_key = os.environ.get(cfg.api_key_env, "").strip()
+    if not api_key:
+        raise FatalProviderError(f"missing environment variable {cfg.api_key_env}")
     try:
-        api_key = os.environ[cfg.api_key_env]
-        token = os.environ[cfg.access_token_env]
-    except KeyError as e:
-        raise FatalProviderError(f"missing environment variable {e.args[0]}") from None
+        token = access_token(data_root)
+    except KiteAuthError as e:
+        raise FatalProviderError(str(e)) from None
     kite = KiteConnect(api_key=api_key)
     kite.set_access_token(token)
     return kite

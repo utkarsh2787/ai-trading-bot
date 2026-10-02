@@ -47,7 +47,7 @@ def make_provider(cfg: Config) -> DataProvider:
     if cfg.data.provider == "kite":
         from orb.data.kite import KiteProvider, client_from_env
 
-        return KiteProvider(client_from_env(cfg.data.kite), cfg.data.kite)
+        return KiteProvider(client_from_env(cfg.data.kite, cfg.data.root), cfg.data.kite)
     from orb.data.local import LocalProvider
 
     return LocalProvider(cfg.data.local)
@@ -99,9 +99,44 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
 # ----------------------------------------------------------------- download
 
 
+def cmd_login(cfg: Config, args: argparse.Namespace) -> None:
+    from orb.data import kite_auth
+
+    if args.request_token:
+        tok = kite_auth.extract_request_token(args.request_token)
+    else:
+        print("1. Open this URL, log in to Kite, and approve the app:\n")
+        print("   " + kite_auth.login_url() + "\n")
+        print("2. You are redirected to your app's redirect URL. Paste that full URL")
+        print("   (or just the request_token value) here.\n")
+        tok = kite_auth.extract_request_token(input("redirect URL or request_token: "))
+    meta = kite_auth.create_session(tok, cfg.data.root)
+    print(
+        f"logged in as {meta['user_id']}; session valid until {meta['expires_after']} "
+        f"(saved to {kite_auth.session_path(cfg.data.root)})"
+    )
+
+
 def cmd_download(cfg: Config, args: argparse.Namespace) -> None:
-    ref = load_reference(cfg.reference)
-    symbols = args.symbols or (ref.all_symbols() + index_symbols(cfg))
+    from orb.data import download_plan
+    from orb.data.reference import load_table
+
+    # only the symbol map is needed; other reference files (ban list, sessions...)
+    # must not block the download
+    symbol_map = load_table("symbol_map", cfg.reference.path("symbol_map"), required=False)
+    if args.symbols:
+        symbols = args.symbols
+    else:
+        symbols, counts = download_plan.download_symbols(cfg)
+        log.info("download list: %s", ", ".join(f"{k}={v}" for k, v in counts.items()))
+    if args.plan:  # no Kite calls, no snapshot created
+        open_snap = snapshot.latest(cfg.data.root, cfg.data.provider, frozen=False)
+        man = Manifest(open_snap.manifest_path) if open_snap else None
+        p = download_plan.plan(cfg, symbols, _end(cfg), man, cfg.data.provider)
+        print(p.text(cfg.data.kite.max_requests_per_sec))
+        if open_snap:
+            print(f"resumes open snapshot {open_snap.id}")
+        return
     snap = snapshot.for_download(cfg.data.root, cfg.data.provider, args.snapshot)
     log.info("downloading into snapshot %s (freeze it with `orb snapshot freeze`)", snap.id)
     dl = Downloader(
@@ -109,7 +144,7 @@ def cmd_download(cfg: Config, args: argparse.Namespace) -> None:
         snap.store,
         Manifest(snap.manifest_path),
         {"minute": cfg.data.kite.minute_chunk_days, "daily": cfg.data.kite.day_chunk_days},
-        resolver=SymbolResolver(ref.symbol_map),
+        resolver=SymbolResolver(symbol_map),
     )
     today = date.today()
     for kind, start in (
@@ -137,6 +172,26 @@ def cmd_download(cfg: Config, args: argparse.Namespace) -> None:
                     "delisted (survivorship risk; need vendor data): %s",
                     ", ".join(sorted(set(r.delisted))),
                 )
+    cmd_coverage(cfg, argparse.Namespace(snapshot=snap.id, symbols=symbols))
+
+
+def cmd_coverage(cfg: Config, args: argparse.Namespace) -> None:
+    """Per-symbol first/last 1-min date and the >= 95% coverage date."""
+    from orb.data import download_plan
+
+    snap = (
+        snapshot.Snapshot(snapshot.snapshots_dir(cfg.data.root, cfg.data.provider) / args.snapshot)
+        if args.snapshot
+        else snapshot.list_snapshots(cfg.data.root, cfg.data.provider)[-1]
+    )
+    symbols = args.symbols or download_plan.download_symbols(cfg)[0]
+    cov, line = download_plan.coverage(snap.store, symbols)
+    out = Path(cfg.data.root) / "_manifest" / f"coverage_{snap.id}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cov.write_csv(out)
+    print(cov)
+    print(line)
+    print(f"per-symbol coverage written to {out}")
 
 
 # ---------------------------------------------------------------- build-raw
@@ -350,6 +405,16 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--kind", choices=["daily", "minute", "all"], default="all")
     d.add_argument("--symbols", nargs="*")
     d.add_argument("--snapshot", help="resume this open snapshot (default: latest open/new)")
+    d.add_argument(
+        "--plan",
+        action="store_true",
+        help="print symbols, ranges, requests and runtime; no Kite calls",
+    )
+    lg = sub.add_parser("login", help="Kite Connect login: saves today's access token")
+    lg.add_argument("--request-token", help="redirect URL or request_token (else prompts)")
+    cv = sub.add_parser("coverage", help="1-min coverage of a vendor snapshot")
+    cv.add_argument("--snapshot")
+    cv.add_argument("--symbols", nargs="*")
     sn = sub.add_parser("snapshot", help="list / freeze / verify vendor snapshots")
     sn.add_argument("action", choices=["list", "freeze", "verify"])
     sn.add_argument("id", nargs="?")
@@ -372,10 +437,15 @@ def main(argv: list[str] | None = None) -> None:
     rp.add_argument("run_dir")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from orb.data.kite_auth import load_dotenv
+
+    load_dotenv(".env")
     cfg = load_config(args.config)
     {
         "ref": cmd_ref,
         "download": cmd_download,
+        "login": cmd_login,
+        "coverage": cmd_coverage,
         "snapshot": cmd_snapshot,
         "build-raw": cmd_build_raw,
         "dq": cmd_dq,
