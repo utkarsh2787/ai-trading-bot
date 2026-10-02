@@ -125,3 +125,13 @@ def test_local_download_then_dq(tmp_path, capsys):
     main(["--config", cfg_path, "report", str(run)])
     md = (run / "report" / "report.md").read_text()
     assert md.splitlines()[0].startswith("survivorship gap:")
+
+
+def test_prereg_hash_is_read_from_the_document():
+    from orb.cli import prereg_config_hash
+    from orb.config import load_config
+
+    assert (
+        prereg_config_hash(ROOT / "docs" / "PREREGISTRATION.md")
+        == load_config(ROOT / "config" / "default.yaml").hash()
+    )

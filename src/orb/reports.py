@@ -476,6 +476,11 @@ def build_report(run_dir: str | Path, cfg: Config, tags: RegimeTags) -> Path:
         meta.get("survivorship_gap", "survivorship gap: n/a"),
         *[c.line() for c in crit],
         verdict,
+        *(
+            []
+            if meta.get("prereg_match", True)
+            else ["WARNING: config differs from docs/PREREGISTRATION.md: not a pre-registered run"]
+        ),
         "",
         f"# ORB backtest report: run {meta.get('run_id')}",
         "",

@@ -271,15 +271,33 @@ def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
 
     start = date.fromisoformat(args.start) if args.start else cfg.run.start_date
     end = date.fromisoformat(args.end) if args.end else cfg.run.oos_start - timedelta(days=1)
+    prereg = prereg_config_hash()
+    if prereg != cfg.hash():
+        log.warning(
+            "config hash %s differs from docs/PREREGISTRATION.md (%s)",
+            cfg.hash()[:12],
+            (prereg or "missing")[:12],
+        )
+        if args.oos:
+            raise SystemExit("OOS refused: config differs from the pre-registered config")
     builder, daily = load_from_disk(cfg)
     ticks = {(r["symbol"], r["date"]): r["tick"] for r in daily_ticks(daily, cfg.ticks).to_dicts()}
     res = Engine(cfg, builder, ticks, RuleScorer(cfg.scoring)).run(
         start, end, oos=args.oos, force_reason=args.force_oos_reason
     )
-    out = write_run(res, cfg, args.out, run_metadata(cfg))
+    meta = {**run_metadata(cfg), "prereg_config_hash": prereg, "prereg_match": prereg == cfg.hash()}
+    out = write_run(res, cfg, args.out, meta)
     print(res.header())
     print(summarize(res.book))
     print(f"run written to {out}")
+
+
+def prereg_config_hash(path: str | Path = "docs/PREREGISTRATION.md") -> str | None:
+    import re
+
+    p = Path(path)
+    m = re.search(r"Config hash \| `([0-9a-f]{64})`", p.read_text()) if p.exists() else None
+    return m.group(1) if m else None
 
 
 def cmd_report(cfg: Config, args: argparse.Namespace) -> None:
