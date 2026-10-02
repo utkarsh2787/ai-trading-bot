@@ -24,8 +24,9 @@ def test_amalgamation_mapped_to_symbols_with_source_page():
     assert (r["old_symbol"], r["new_symbol"], r["effective_date"]) == (
         "HDFC",
         "HDFCBANK",
-        date(2023, 7, 13),
+        date(2023, 7, 13),  # day after the last trade (2023-07-12)
     )
+    assert r["index_release_date"] == date(2023, 7, 13)
     assert r["old_last_traded"] == date(2023, 7, 12) and r["needs_review"]
     assert r["source"] == "ind_prs04072023.pdf p.1"
 

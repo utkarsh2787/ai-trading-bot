@@ -17,7 +17,7 @@ rows whose ``needs_review`` is false (or absent).
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 
@@ -33,7 +33,8 @@ _EFFECTIVE = re.compile(r"(?i)effective\s+(?:from\s+)?([A-Z][a-z]+\.?\s+\d{1,2}\
 CANDIDATE_SCHEMA = {
     "old_symbol": pl.String,
     "new_symbol": pl.String,
-    "effective_date": pl.Date,
+    "effective_date": pl.Date,  # day after the target's last bhavcopy trade
+    "index_release_date": pl.Date,  # effective date quoted in the index release
     "old_last_traded": pl.Date,
     "source": pl.String,
     "evidence": pl.String,
@@ -87,7 +88,8 @@ def find_candidates(
                 {
                     "old_symbol": old,
                     "new_symbol": new,
-                    "effective_date": _parse_date(eff.group(1)) if eff else None,
+                    "effective_date": (last + timedelta(days=1)) if last else None,
+                    "index_release_date": _parse_date(eff.group(1)) if eff else None,
                     "old_last_traded": last,
                     "source": f"{fname} p.{_page_of(t, max(pos, 0))}",
                     "evidence": m.group(0)[:160],
