@@ -28,8 +28,13 @@ log = logging.getLogger(__name__)
 
 
 def builder_from_disk(cfg: Config) -> ContextBuilder:
+    return load_from_disk(cfg)[0]
+
+
+def load_from_disk(cfg: Config) -> tuple[ContextBuilder, pl.DataFrame]:
+    """(builder, raw daily bars of every universe symbol)."""
     ref = load_reference(cfg.reference)
-    raw = Stores.under(cfg.data.root, cfg.data.provider).raw
+    raw = Stores.raw_only(cfg.data.root)
     dq = Path(cfg.data.root) / "_dq"
     end = cfg.run.end_date
     calendar = raw.read_daily(cfg.data.index.primary, cfg.data.daily_history_start, end)[
@@ -47,8 +52,8 @@ def builder_from_disk(cfg: Config) -> ContextBuilder:
         return pl.read_parquet(p).filter(pl.col("severity") == ERROR)
 
     invalid_daily = errors("daily_issues.parquet").select("symbol", "date").unique()
-    excl = pl.read_parquet(dq / "exclusions.parquet").select("symbol", "date")
-    whole_days = ref.day_exclusions().select(symbol=pl.lit("*"), date="date")
+    excl = pl.read_parquet(dq / "exclusions.parquet").select("symbol", "date", "reason")
+    whole_days = ref.day_exclusions().select(symbol=pl.lit("*"), date="date", reason="reason")
     indices = [cfg.data.index.primary, cfg.data.index.fallback]
     issues = errors("issues.parquet")
     index_invalid = {
@@ -63,7 +68,7 @@ def builder_from_disk(cfg: Config) -> ContextBuilder:
         parts = [raw.read_minute(s, a, b) for s in syms]
         return pl.concat(parts) if parts else pl.DataFrame()
 
-    return ContextBuilder(
+    builder = ContextBuilder(
         cfg,
         calendar,
         ref.membership,
@@ -73,6 +78,7 @@ def builder_from_disk(cfg: Config) -> ContextBuilder:
         minute_loader,
         index_invalid,
     )
+    return builder, daily
 
 
 def scan_range(

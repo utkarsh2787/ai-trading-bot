@@ -1,7 +1,8 @@
 """Command line.
 
 orb ref {symbols,nifty200,bhavcopy,ca,ban,all}   reference data from NSE / niftyindices
-orb download                                     vendor bars -> data/vendor/<provider>
+orb download                                     vendor bars -> vendor/<provider>/snapshots/<id>
+orb snapshot {list,freeze,verify}                freeze = immutable + hashed
 orb build-raw                                    vendor -> data/raw (de-adjusted)
 orb dq                                           checks + exclusion report on data/raw
 orb scan                                         first-breakout candidates (OOS needs --oos)
@@ -11,15 +12,23 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import date
+import shutil
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
 
 from orb.config import Config, load_config
+from orb.data import snapshot
 from orb.data.download import Downloader, Manifest
-from orb.data.exclusions import exclusion_report, exclusion_table, universe_days
-from orb.data.pipeline import BuildReport, Stores, build_raw_symbol
+from orb.data.exclusions import (
+    exclusion_report,
+    exclusion_table,
+    survivorship_gap,
+    survivorship_header,
+    universe_days,
+)
+from orb.data.pipeline import BuildReport, Stores, build_raw_symbol, write_build_record
 from orb.data.provider import DataProvider
 from orb.data.quality import (
     check_daily,
@@ -60,7 +69,7 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
     from orb.refdata.build import RefBuilder
 
     b = RefBuilder(cfg)
-    raw = Stores.under(cfg.data.root, cfg.data.provider).raw
+    raw = Stores.raw_only(cfg.data.root)
     start, end = cfg.data.daily_history_start, _end(cfg)
     steps = ["symbols", "nifty200", "bhavcopy", "ca", "ban"] if args.what == "all" else [args.what]
     for step in steps:
@@ -75,6 +84,8 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
             b.corporate_actions(raw, start, end)
         elif step == "ban":
             b.ban_list(cfg.data.minute_history_start, end)
+        elif step == "mergers":
+            b.merger_candidates(raw)
 
 
 # ----------------------------------------------------------------- download
@@ -83,12 +94,12 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
 def cmd_download(cfg: Config, args: argparse.Namespace) -> None:
     ref = load_reference(cfg.reference)
     symbols = args.symbols or (ref.all_symbols() + index_symbols(cfg))
-    stores = Stores.under(cfg.data.root, cfg.data.provider)
-    manifest = Manifest(Path(cfg.data.root) / "_manifest" / "downloads.jsonl")
+    snap = snapshot.for_download(cfg.data.root, cfg.data.provider, args.snapshot)
+    log.info("downloading into snapshot %s (freeze it with `orb snapshot freeze`)", snap.id)
     dl = Downloader(
         make_provider(cfg),
-        stores.vendor,
-        manifest,
+        snap.store,
+        Manifest(snap.manifest_path),
         {"minute": cfg.data.kite.minute_chunk_days, "daily": cfg.data.kite.day_chunk_days},
         resolver=SymbolResolver(ref.symbol_map),
     )
@@ -123,10 +134,34 @@ def cmd_download(cfg: Config, args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------- build-raw
 
 
+def cmd_snapshot(cfg: Config, args: argparse.Namespace) -> None:
+    root, prov = cfg.data.root, cfg.data.provider
+    if args.action == "list":
+        for s in snapshot.list_snapshots(root, prov):
+            print(s.id, "frozen" if s.frozen else "open", s.content_hash if s.frozen else "")
+    elif args.action == "freeze":
+        s = (
+            snapshot.Snapshot(snapshot.snapshots_dir(root, prov) / args.id)
+            if args.id
+            else snapshot.latest(root, prov, frozen=False)
+        )
+        if s is None:
+            raise SystemExit("no open snapshot to freeze")
+        meta = s.freeze(prov)
+        print(f"froze {s.id}: {meta['n_files']} files, content hash {meta['content_hash']}")
+    elif args.action == "verify":
+        s = snapshot.for_build(root, prov, args.id)  # raises on mismatch
+        print(f"{s.id} OK ({s.content_hash})")
+
+
 def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
-    stores = Stores.under(cfg.data.root, cfg.data.provider)
+    snap = snapshot.for_build(cfg.data.root, cfg.data.provider, args.snapshot)
+    stores = Stores(vendor=snap.store, raw=Stores.raw_only(cfg.data.root))
+    ref = load_reference(cfg.reference)
     indices = set(index_symbols(cfg))
     report = BuildReport()
+    if not args.symbols:  # full rebuild from this snapshot: drop minute bars of older builds
+        shutil.rmtree(Path(cfg.data.root) / "raw" / "minute", ignore_errors=True)
     for symbol in args.symbols or stores.vendor.symbols("minute"):
         build_raw_symbol(
             symbol,
@@ -137,11 +172,23 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
             symbol in indices,
             cfg.data.deadjust_tolerance,
             report,
+            ref.corporate_actions,
+            cfg.data.deadjust_drift_tolerance,
         )
     issues = report.issue_frame()
     out = Path(cfg.data.root) / "_dq"
     out.mkdir(parents=True, exist_ok=True)
     issues.write_parquet(out / "deadjust_issues.parquet")
+    drift = report.drift_frame()
+    drift.write_csv(out / "factor_drift.csv")
+    if drift.height:
+        log.warning(
+            "factor drift: %d runs on %d symbols (see %s)",
+            drift.height,
+            drift["symbol"].n_unique(),
+            out / "factor_drift.csv",
+        )
+    write_build_record(Path(cfg.data.root) / "raw", snap.id, snap.content_hash)
     log.info(
         "build-raw: %d symbols, %d minute rows, %d de-adjust issues",
         report.symbols,
@@ -155,7 +202,7 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
 
 def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     ref = load_reference(cfg.reference)
-    raw = Stores.under(cfg.data.root, cfg.data.provider).raw
+    raw = Stores.raw_only(cfg.data.root)
     special = set(ref.special_sessions["date"].to_list())
     indices = set(index_symbols(cfg))
     start, end = cfg.data.minute_history_start, cfg.run.end_date
@@ -192,17 +239,46 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
         cfg.run.oos_start,
     )
     excl.write_parquet(out / "exclusions.parquet")
+    minute_days = pl.DataFrame(
+        [(s, d) for s in raw.symbols("minute") for d in raw.minute_dates(s)],
+        schema={"symbol": pl.String, "date": pl.Date},
+        orient="row",
+    )
+    gap = survivorship_gap(universe, minute_days)
+    gap.write_csv(out / "survivorship_gap.csv")
+    print(f"\n{survivorship_header(gap)}\n{gap}")
     for name, table in exclusion_report(excl, universe, vix).items():
         table.write_csv(out / f"exclusions_{name}.csv")
         print(f"\nexcluded stock-days {name}:\n{table}")
+
+
+# ----------------------------------------------------------------- backtest
+
+
+def cmd_backtest(cfg: Config, args: argparse.Namespace) -> None:
+    from orb.engine import Engine, summarize, write_run
+    from orb.repro import run_metadata
+    from orb.scan import load_from_disk
+    from orb.scoring import RuleScorer
+    from orb.sim.ticks import daily_ticks
+
+    start = date.fromisoformat(args.start) if args.start else cfg.run.start_date
+    end = date.fromisoformat(args.end) if args.end else cfg.run.oos_start - timedelta(days=1)
+    builder, daily = load_from_disk(cfg)
+    ticks = {(r["symbol"], r["date"]): r["tick"] for r in daily_ticks(daily, cfg.ticks).to_dicts()}
+    res = Engine(cfg, builder, ticks, RuleScorer(cfg.scoring)).run(
+        start, end, oos=args.oos, force_reason=args.force_oos_reason
+    )
+    out = write_run(res, cfg, args.out, run_metadata(cfg))
+    print(res.header())
+    print(summarize(res.book))
+    print(f"run written to {out}")
 
 
 # --------------------------------------------------------------------- scan
 
 
 def cmd_scan(cfg: Config, args: argparse.Namespace) -> None:
-    from datetime import timedelta
-
     from orb.scan import builder_from_disk, scan_range
     from orb.scoring import RuleScorer
 
@@ -223,27 +299,42 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--config", default="config/default.yaml")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("ref", help="download/parse reference data from NSE public sources")
-    r.add_argument("what", choices=["symbols", "nifty200", "bhavcopy", "ca", "ban", "all"])
+    r.add_argument(
+        "what", choices=["symbols", "nifty200", "bhavcopy", "ca", "ban", "mergers", "all"]
+    )
     d = sub.add_parser("download", help="fetch and cache vendor bars (resumable)")
     d.add_argument("--kind", choices=["daily", "minute", "all"], default="all")
     d.add_argument("--symbols", nargs="*")
-    b = sub.add_parser("build-raw", help="vendor store -> raw store (de-adjust if needed)")
+    d.add_argument("--snapshot", help="resume this open snapshot (default: latest open/new)")
+    sn = sub.add_parser("snapshot", help="list / freeze / verify vendor snapshots")
+    sn.add_argument("action", choices=["list", "freeze", "verify"])
+    sn.add_argument("id", nargs="?")
+    b = sub.add_parser("build-raw", help="frozen vendor snapshot -> raw store (de-adjusted)")
     b.add_argument("--symbols", nargs="*")
+    b.add_argument("--snapshot", help="frozen snapshot id (default: latest frozen)")
     q = sub.add_parser("dq", help="data-quality checks and exclusion report on the raw store")
     q.add_argument("--symbols", nargs="*")
     s = sub.add_parser("scan", help="first-breakout candidates with features and scores")
     s.add_argument("--start")
     s.add_argument("--end")
     s.add_argument("--oos", action="store_true", help="allow dates in the locked OOS period")
+    bt = sub.add_parser("backtest", help="run the engine (in-sample unless --oos)")
+    bt.add_argument("--start")
+    bt.add_argument("--end")
+    bt.add_argument("--out", default="runs")
+    bt.add_argument("--oos", action="store_true", help="run the locked OOS period (once)")
+    bt.add_argument("--force-oos-reason", help="rerun OOS anyway; the reason is logged")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_config(args.config)
     {
         "ref": cmd_ref,
         "download": cmd_download,
+        "snapshot": cmd_snapshot,
         "build-raw": cmd_build_raw,
         "dq": cmd_dq,
         "scan": cmd_scan,
+        "backtest": cmd_backtest,
     }[args.cmd](cfg, args)
 
 

@@ -13,7 +13,8 @@ data:
   provider: kite                # kite | local
   daily_history_start: 2016-01-01   # fixed Wilder-ATR seed origin (decision 7)
   minute_history_start: 2017-10-01  # >= 20 sessions of RV warm-up before run.start_date
-  deadjust_tolerance: 0.005         # Kite vs bhavcopy OHLC ratio dispersion (decision 30)
+  deadjust_tolerance: 0.005         # Kite vs bhavcopy OHLC ratio dispersion within a day
+  deadjust_drift_tolerance: 0.001   # factor must be constant between corporate actions
   index:
     primary: NIFTY 200
     fallback: NIFTY 50

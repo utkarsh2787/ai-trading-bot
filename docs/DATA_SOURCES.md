@@ -4,8 +4,9 @@
 
 ```
 orb ref all        NSE / niftyindices.com  ->  data/ref/*.csv  +  data/raw/daily (bhavcopy)
-orb download       Kite (or vendor files)  ->  data/vendor/<provider>/      (as delivered)
-orb build-raw      vendor + bhavcopy       ->  data/raw/minute              (actual traded prices)
+orb download       Kite (or vendor files)  ->  data/vendor/<provider>/snapshots/<id>/  (as delivered)
+orb snapshot freeze                        ->  hashed, read-only, immutable
+orb build-raw      frozen snapshot + bhav  ->  data/raw/minute  (actual traded prices) + raw/BUILD.json
 orb dq             data/raw                ->  data/_dq/ (issues, exclusions, exclusion report)
 ```
 
@@ -67,7 +68,9 @@ reruns are resumable and work offline.
 
 Put these files under `data/ref/manual/`:
 
-1. **`mergers.csv`**, with columns `old_symbol,new_symbol,effective_date`. These
+1. **`mergers.csv`**, with columns `old_symbol,new_symbol,effective_date[,needs_review,...]`.
+   `orb ref mergers` pre-fills candidates with `needs_review = true`, and only
+   rows set to `false` are applied. These
    are mergers and amalgamations where the old symbol stops trading: for example
    `HDFC,HDFCBANK,2023-07-13`. Sources: the NSE corporate-actions entries marked
    "Scheme of Amalgamation", and niftyindices "Replacement in indices … on account
@@ -86,16 +89,21 @@ Put these files under `data/ref/manual/`:
    days later (JIOFIN 2023, ITC Hotels 2025, TML CV 2025, the Vedanta entities
    2026). Both steps are treated as non-events.
 
-   **Status of the first full run (2026-10-02, 602 releases since 2017-10):**
-   373 parsed change rows from 35 releases. From 2024-03-28 onward the index
-   holds exactly 200 names on every date. Before that the count is 201–204 on
-   146 boundary dates, so some changes are missed. Fix these by hand from the
-   review list, which has 11 releases. Four of them are real Nifty 200 changes
-   that are written out in prose rather than as tables:
-   2020-03-19 (PVR via Midcap 100), 2024-03-19 (IREDA inclusion revoked),
-   2024-08-23 and 2024-09-25. The `nifty200:` warnings that `orb ref nifty200`
-   prints (for example, "add CENTRALBK but not a member after the change")
-   point to the dates where a later removal was missed.
+   **Status (2026-10-02).** 602 releases since 2017-10 were parsed. Text
+   extraction handles wrapped table rows and "NIFTY 200 Index" headings, and
+   image-only PDFs are OCR'd for review (one such release: 2021-08-23). A
+   drafted `nifty200_changes_manual.csv` (29 rows, each citing a PDF and page)
+   covers:
+   - the 2020-03-27 review, declared null and void because of COVID;
+   - the OCR'd 2021-09-30 review;
+   - the IREDA→BSE revocation (2024-03-28);
+   - the TATAMTRDVR exclusion (2024-08-30);
+   - the IDEA/CENTRALBK revocations (2024-09-30).
+
+   With it applied, **all 281 change-boundary dates hold exactly 200
+   companies**. The 201 *securities* during the TATAMTRDVR periods are
+   expected. Rows marked `needs_review = true` (the OCR transcriptions) still
+   need checking against the PDF.
 3. **Delisted and merged-away stocks.** `orb download` lists them as
    `delisted:` / `merged:`. Buy their 1-min history from a vendor, put one file
    per symbol in `vendor/minute/<SYMBOL>.csv` (or `.parquet`), and import with

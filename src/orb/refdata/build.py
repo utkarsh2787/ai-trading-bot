@@ -14,7 +14,6 @@ from pathlib import Path
 import polars as pl
 
 from orb.config import Config
-from orb.data.reference import load_membership
 from orb.data.store import ParquetStore
 from orb.refdata import nifty200, nse
 from orb.refdata.http import CachedFetcher, Fetcher, NSEHttp
@@ -56,7 +55,13 @@ class RefBuilder:
         mpath = self.root / MANUAL_DIR / MERGERS
         parts = [renames]
         if mpath.exists():
-            m = pl.read_csv(mpath, infer_schema_length=0).select(
+            m = pl.read_csv(mpath, infer_schema_length=0)
+            if "needs_review" in m.columns:  # only reviewed rows are applied
+                m = m.filter(
+                    pl.col("needs_review").str.to_lowercase().is_in(["false", "0", ""])
+                    | pl.col("needs_review").is_null()
+                )
+            m = m.select(
                 pl.col("old_symbol").str.strip_chars(),
                 pl.col("new_symbol").str.strip_chars(),
                 pl.col("effective_date").str.strip_chars().str.to_date(),
@@ -88,10 +93,28 @@ class RefBuilder:
                 review.append({**r, "reason": "could not download PDF"})
                 continue
             try:
-                parsed = nifty200.parse_release(nifty200.pdf_text(blob))
+                text = self._pdf_text(r["url"], blob)
             except Exception as exc:  # noqa: BLE001 - malformed PDFs go to review
                 review.append({**r, "reason": f"PDF text extraction failed: {exc}"})
                 continue
+            if nifty200.is_image_only(text):
+                ocr = nifty200.ocr_text(blob)
+                name = r["url"].rsplit("/", 1)[-1]
+                if ocr and nifty200.mentions_index(ocr):
+                    ocr_dir = self.root / "_cache" / "nifty200_ocr"
+                    ocr_dir.mkdir(parents=True, exist_ok=True)
+                    (ocr_dir / f"{name}.txt").write_text(ocr)
+                    review.append(
+                        {
+                            **r,
+                            "reason": "image-only PDF: OCR text in "
+                            f"_cache/nifty200_ocr/{name}.txt - transcribe into manual",
+                        }
+                    )
+                elif ocr is None:
+                    review.append({**r, "reason": "image-only PDF and no OCR available"})
+                continue
+            parsed = nifty200.parse_release(text)
             kind = nifty200.classify_release(r["title"], parsed)
             if kind == "review":
                 review.append({**r, "reason": "mentions Nifty 200 but no change list parsed"})
@@ -156,18 +179,69 @@ class RefBuilder:
             )
         return rec
 
+    def _pdf_text(self, url: str, blob: bytes) -> str:
+        """Page-marked text of a press-release PDF, cached next to the PDFs."""
+        d = self.root / "_cache" / "nifty200_text"
+        p = d / (url.rsplit("/", 1)[-1] + ".txt")
+        if p.exists():
+            return p.read_text()
+        text = nifty200.pdf_text(blob)
+        d.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+        return text
+
+    def press_texts(self) -> dict[str, str]:
+        """{pdf filename: text} for every cached release (OCR text where image-only)."""
+        out = {}
+        for d in ("nifty200_text", "nifty200_ocr"):
+            for p in sorted((self.root / "_cache" / d).glob("*.txt")):
+                out[p.name.removesuffix(".txt")] = p.read_text()
+        return out
+
+    # ---------------------------------------------------------------- mergers
+    def merger_candidates(self, raw: ParquetStore) -> pl.DataFrame:
+        from orb.refdata import mergers
+
+        last = {}
+        for s in raw.symbols("daily"):
+            d = raw.read_daily(s, date(1990, 1, 1), date(2100, 1, 1))["date"]
+            if d.len():
+                last[s] = d.max()
+        if not last:
+            raise RuntimeError("no bhavcopy in the raw store: run `orb ref bhavcopy` first")
+        sm = self.cfg.reference.path("symbol_map")
+        renamed = (
+            set(pl.read_csv(sm).filter(pl.col("change_type") == "rename")["old_symbol"])
+            if sm.exists()
+            else set()
+        )
+        cands = mergers.find_candidates(self.press_texts(), last, renamed, max(last.values()))
+        path = self.root / MANUAL_DIR / MERGERS
+        if path.exists():  # keep the user's rows; add only new candidates
+            have = pl.read_csv(path, infer_schema_length=0)
+            known = set(zip(have["old_symbol"], have["new_symbol"], strict=True))
+            new = cands.filter(
+                ~pl.struct("old_symbol", "new_symbol").map_elements(
+                    lambda r: (r["old_symbol"], r["new_symbol"]) in known, return_dtype=pl.Boolean
+                )
+            )
+            merged = pl.concat([have, new.cast(pl.String)], how="diagonal")
+        else:
+            merged = cands
+        path.parent.mkdir(parents=True, exist_ok=True)
+        merged.write_csv(path)
+        log.info("mergers: %d candidates (%s)", cands.height, path)
+        return cands
+
     # --------------------------------------------------------------- bhavcopy
     def bhavcopy(self, raw: ParquetStore, start: date, end: date) -> list[date]:
-        """Raw daily bars for universe symbols, written to the raw store year by year."""
-        mpath = self.cfg.reference.path("membership")
-        universe = set(load_membership(mpath)["symbol"]) if mpath.exists() else None
+        """Raw daily bars for ALL EQ/BE symbols (not just current members, so later
+        membership corrections and merger detection need no re-download)."""
         missing: list[date] = []
         for year in range(start.year, end.year + 1):
             a, b = max(start, date(year, 1, 1)), min(end, date(year, 12, 31))
             df, miss = nse.download_bhavcopy(self.fetch("bhavcopy"), self.n, a, b)
             missing += miss
-            if universe is not None:
-                df = df.filter(pl.col("symbol").is_in(list(universe)))
             raw.write_daily(df)
             log.info("bhavcopy %d: %d rows, %d weekdays without a file", year, df.height, len(miss))
         self._write(

@@ -30,9 +30,30 @@ class StockDay:
     bars: SessionArrays
     atr14: float | None
     prev_close: float | None
-    history_reason: str | None  # None = ATR and RV baseline usable
+    atr_reason: str | None  # None = ATR / prev close usable
     rv_base: np.ndarray | None
     rv_sessions: int
+    rv_reason: str | None = None  # None = RV baseline usable
+    excluded_reason: str | None = None  # EXCLUDED_* category; still scanned and logged
+    exclusion_detail: str | None = None  # every underlying reason, ';'-joined
+
+    @property
+    def history_reason(self) -> str | None:
+        return self.atr_reason or self.rv_reason
+
+
+EXCLUSION_PRECEDENCE = ["EXCLUDED_SESSION", "EXCLUDED_DQ", "EXCLUDED_CORP_ACTION", "EXCLUDED_BAN"]
+
+
+def exclusion_category(reason: str) -> str:
+    r = (reason or "").upper()
+    if r.startswith(("SPECIAL_SESSION", "CALENDAR_EXCEPTION")):
+        return "EXCLUDED_SESSION"
+    if r == "FNO_BAN":
+        return "EXCLUDED_BAN"
+    if r.startswith("CORPORATE_ACTION"):
+        return "EXCLUDED_CORP_ACTION"
+    return "EXCLUDED_DQ"  # any data-quality error
 
 
 @dataclass(frozen=True)
@@ -65,18 +86,24 @@ class ContextBuilder:
         """
         calendar:   market trading days (ascending)
         daily_ctx:  output of ``features.daily_context``
-        excluded:   (symbol, date) stock-days that are neither traded nor used as
-                    RV baseline sessions; whole-market excluded days must be
-                    expanded to all symbols (or listed with symbol '*')
+        excluded:   (symbol, date[, reason]) stock-days that are never traded nor
+                    used as RV baseline sessions, but are still scanned so their
+                    breakouts appear in the signal log as EXCLUDED_*. Whole-market
+                    days use symbol '*'. Missing reason -> EXCLUDED_DQ.
         """
         self.cfg = cfg
         self.calendar = calendar
         self.cal_index = {d: i for i, d in enumerate(calendar)}
         self.membership = membership
         self.ctx = {(r["symbol"], r["date"]): r for r in daily_ctx.to_dicts()}
-        ex = excluded.select("symbol", "date")
-        self.excluded_all = set(ex.filter(pl.col("symbol") == "*")["date"].to_list())
-        self.excluded = {(s, d) for s, d in ex.filter(pl.col("symbol") != "*").iter_rows()}
+        ex = (
+            excluded if "reason" in excluded.columns else excluded.with_columns(reason=pl.lit("DQ"))
+        )
+        self.reasons: dict[tuple[str, date], list[str]] = {}
+        for s, d, r in ex.select("symbol", "date", "reason").iter_rows():
+            self.reasons.setdefault((s, d), []).append(r)
+        self.excluded_all = {d for (s, d) in self.reasons if s == "*"}
+        self.excluded = {k for k in self.reasons if k[0] != "*"}
         self.minute_loader = minute_loader
         self.index_loader = index_loader
         self.index_invalid = set(index_invalid)
@@ -135,9 +162,7 @@ class ContextBuilder:
         window = self.calendar[max(0, k - f.rv_window_trading_days) : k]
         if window:
             self._evict(window[0])
-        members = [s for s in members_on(self.membership, day) if self._valid_session(s, day)]
-        if day in self.excluded_all:
-            members = []
+        members = members_on(self.membership, day)  # excluded ones too: they are logged
         self._ensure(members, window + [day])
         stocks, no_data = [], []
         for s in members:
@@ -146,20 +171,18 @@ class ContextBuilder:
                 no_data.append(s)
                 continue
             c = self.ctx.get((s, day))
-            reason = None
-            atr = prev = None
             if c is None:
-                reason = "INSUFFICIENT_HISTORY:daily_bars"
+                atr = prev = None
+                atr_reason = "INSUFFICIENT_HISTORY:daily_bars"
             else:
-                atr, prev = c["atr14"], c["prev_close"]
-                reason = c["atr_reason"]
+                atr, prev, atr_reason = c["atr14"], c["prev_close"], c["atr_reason"]
             valid = {
                 d for d in window if self._valid_session(s, d) and self._session(s, d) is not None
             }
             chosen = select_baseline_sessions(window, valid, f)
-            base = None
+            base, rv_reason = None, None
             if chosen is None:
-                reason = reason or "INSUFFICIENT_HISTORY:rv_sessions"
+                rv_reason = "INSUFFICIENT_HISTORY:rv_sessions"
             else:
                 f_t = c["adj_factor_t"] if c else 1.0
                 curves, scales = [], []
@@ -169,7 +192,20 @@ class ContextBuilder:
                     curves.append(self._session(s, d).cum_volume())
                     scales.append(f_t / f_d)  # volume_T(d) = volume(d) * F(T) / F(d)
                 base = rv_baseline(curves, scales)
+            raw_reasons = self.reasons.get((s, day), []) + self.reasons.get(("*", day), [])
+            cats = {exclusion_category(r) for r in raw_reasons}
             stocks.append(
-                StockDay(s, bars, atr, prev, reason, base, len(chosen) if chosen else len(valid))
+                StockDay(
+                    s,
+                    bars,
+                    atr,
+                    prev,
+                    atr_reason,
+                    base,
+                    len(chosen) if chosen else len(valid),
+                    rv_reason,
+                    next((c for c in EXCLUSION_PRECEDENCE if c in cats), None),
+                    ";".join(sorted(set(raw_reasons))) or None,
+                )
             )
         return DayInputs(day, stocks, self._index(day), no_data)

@@ -2,6 +2,7 @@ import shutil
 from datetime import date
 
 import polars as pl
+import pytest
 import yaml
 
 from orb.cli import main
@@ -51,14 +52,25 @@ def test_local_download_then_dq(tmp_path, capsys):
 
     cfg_path = str(cfg_dir / "default.yaml")
     main(["--config", cfg_path, "download"])
-    vend = ParquetStore(tmp_path / "data" / "vendor" / "local")
+    from orb.data import snapshot
+
+    snap = snapshot.latest(tmp_path / "data", "local", frozen=False)
+    vend = snap.store
     assert vend.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
     assert vend.read_minute("AAA", DAYS[0], DAYS[-1]).height == 3 * 375  # dup collapsed
 
     # stock daily bars come from the bhavcopy (`orb ref bhavcopy`); simulate it
     raw = ParquetStore(tmp_path / "data" / "raw")
     raw.write_daily(vend.read_daily("AAA", date(2016, 1, 1), DAYS[-1]))
+    with pytest.raises(snapshot.SnapshotError, match="frozen"):
+        main(["--config", cfg_path, "build-raw"])  # unfrozen snapshots cannot be built
+    main(["--config", cfg_path, "snapshot", "freeze"])
+    with pytest.raises(snapshot.SnapshotError, match="frozen"):
+        main(["--config", cfg_path, "download", "--snapshot", snap.id])
     main(["--config", cfg_path, "build-raw"])
+    from orb.data.pipeline import read_build_record
+
+    assert read_build_record(tmp_path / "data" / "raw")["snapshot_id"] == snap.id
     assert raw.symbols("minute") == ["AAA", "INDIA VIX", "NIFTY 200", "NIFTY 50"]
     assert raw.read_daily("NIFTY 200", DAYS[0], DAYS[-1]).height == 3  # index daily copied
 
@@ -77,9 +89,35 @@ def test_local_download_then_dq(tmp_path, capsys):
     assert row["stock_days"] == 1 and row["universe_days"] == 3
     assert (dq / "exclusions_by_year.csv").exists()
     assert (dq / "exclusions_by_vix_tercile.csv").exists()
+    gap = pl.read_csv(dq / "survivorship_gap.csv").filter(pl.col("year") == "ALL")
+    assert gap["gap_pct"][0] == 0.0  # AAA has minute data on all 3 member days
 
     main(["--config", cfg_path, "scan", "--start", "2018-01-01", "--end", "2018-01-03"])
     cands = pl.read_parquet(tmp_path / "data" / "_scan" / "candidates.parquet")
-    # only 3 minute sessions exist: any breakout must be rejected for history, never traded
-    assert set(cands["decision"].to_list()) <= {"REJECTED"}
-    assert all(r.startswith("INSUFFICIENT_HISTORY") for r in cands["reason"].to_list())
+    # only 3 minute sessions exist: nothing can be traded. The duplicate-timestamp day
+    # is still logged, as EXCLUDED_DQ; the rest are rejected for history.
+    assert set(cands["decision"].to_list()) <= {"REJECTED", "EXCLUDED"}
+    for r in cands.to_dicts():
+        if r["decision"] == "EXCLUDED":
+            assert r["date"] == DAYS[0] and r["reason"] == "EXCLUDED_DQ"
+        else:
+            assert r["reason"].startswith("INSUFFICIENT_HISTORY")
+
+    main(
+        [
+            "--config",
+            cfg_path,
+            "backtest",
+            "--start",
+            "2018-01-01",
+            "--end",
+            "2018-01-03",
+            "--out",
+            str(tmp_path / "runs"),
+        ]
+    )
+    run = next((tmp_path / "runs").iterdir())
+    meta = __import__("json").loads((run / "meta.json").read_text())
+    assert meta["vendor_snapshot_id"] == snap.id and meta["config_hash"]
+    assert meta["survivorship_gap"].startswith("survivorship gap: 0.00%")
+    assert (run / "summary.txt").read_text().startswith("survivorship gap:")

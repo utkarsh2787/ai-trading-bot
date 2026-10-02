@@ -23,6 +23,9 @@ from datetime import date, datetime, timedelta
 import polars as pl
 
 INDEX = "nifty 200"
+# Second share classes counted as separate index securities but not separate
+# companies (Nifty 200 held 201 securities while Tata Motors DVR was a member).
+SECOND_CLASS = {"TATAMTRDVR"}
 CHANGE_SCHEMA = {
     "effective_date": pl.Date,
     "symbol": pl.String,
@@ -84,7 +87,44 @@ def equity_releases(press: pl.DataFrame, since: date) -> pl.DataFrame:
 def pdf_text(blob: bytes) -> str:
     from pypdf import PdfReader
 
-    return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(blob)).pages)
+    return "\n".join(
+        f"=== page {i + 1} ===\n" + (p.extract_text() or "")
+        for i, p in enumerate(PdfReader(io.BytesIO(blob)).pages)
+    )
+
+
+def is_image_only(text: str) -> bool:
+    return len(re.sub(r"\s|=== page \d+ ===", "", text)) < 300
+
+
+def ocr_text(blob: bytes, dpi: int = 200) -> str | None:
+    """OCR an image-only PDF with poppler + tesseract (None if unavailable)."""
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    if not (shutil.which("pdftoppm") and shutil.which("tesseract")):
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        pdf = Path(d) / "in.pdf"
+        pdf.write_bytes(blob)
+        subprocess.run(
+            ["pdftoppm", "-r", str(dpi), "-png", str(pdf), f"{d}/p"],
+            check=True,
+            capture_output=True,
+        )
+        pages = sorted(Path(d).glob("p-*.png"), key=lambda p: int(p.stem.split("-")[1]))
+        out = []
+        for i, png in enumerate(pages):
+            r = subprocess.run(
+                ["tesseract", str(png), "-", "--psm", "6"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            out.append(f"=== page {i + 1} ===\n{r.stdout}")
+    return "\n".join(out)
 
 
 # -------------------------------------------------------------- PDF parsing
@@ -122,14 +162,21 @@ def _section_changes(text: str) -> tuple[list[str], list[str]] | None:
         adds: list[str] = []
         removes: list[str] = []
         mode = None
+        buf: str | None = None  # a table row may wrap over several lines
         for line in text[h.end() : end].splitlines():
             low = line.lower()
             if "being excluded" in low:
-                mode = removes
+                mode, buf = removes, None
             elif "being included" in low:
-                mode = adds
-            elif mode is not None and (m := _ROW.match(line)):
-                mode.append(m.group(2).rstrip("*"))
+                mode, buf = adds, None
+            elif mode is not None:
+                if re.match(r"^\s*\d+(\s|$)", line):
+                    buf = line.strip()
+                elif buf is not None and line.strip() and not line.startswith("==="):
+                    buf += " " + line.strip()
+                if buf is not None and (m := _ROW.match(buf)):
+                    mode.append(m.group(2).rstrip("*"))
+                    buf = None
         if adds or removes:
             return adds, removes
     return None
@@ -182,8 +229,8 @@ def classify_release(title: str, parsed: ParsedRelease) -> str:
     corp_adj = t.startswith("corporate adjustment") or t.startswith("corporate action adjustment")
     if corp_adj and "replacement" not in t:
         return "ignore"
-    if parsed.method == "single_exclusion" and parsed.spinoff:
-        return "ignore"
+    if parsed.spinoff and (parsed.method == "single_exclusion" or t.startswith("exclusion of")):
+        return "ignore"  # exclusion of a just-listed demerged entity (any number of them)
     if parsed.needs_review:
         return "review"
     return "changes" if (parsed.adds or parsed.removes) else "ignore"
@@ -192,11 +239,11 @@ def classify_release(title: str, parsed: ParsedRelease) -> str:
 @dataclass
 class Reconstruction:
     membership: pl.DataFrame  # symbol, valid_from, valid_to
-    sizes: pl.DataFrame  # date, n  (count in force from that date)
+    sizes: pl.DataFrame  # date, n (securities), n_companies, in force on that date
     inconsistencies: list[str]
 
     def size_violations(self, expected: int = 200) -> pl.DataFrame:
-        return self.sizes.filter(pl.col("n") != expected)
+        return self.sizes.filter(pl.col("n_companies") != expected)
 
 
 def reconstruct(
@@ -220,7 +267,11 @@ def reconstruct(
     alias_old_to_new = {v: k for k, v in alias_new_to_old.items()}
     state: dict[str, date | None] = {s: None for s in current}  # symbol -> valid_to
     intervals: list[dict] = []
-    sizes: list[dict] = [{"date": as_of, "n": len(state)}]
+
+    def count() -> dict:
+        return {"n": len(state), "n_companies": len(set(state) - SECOND_CLASS)}
+
+    sizes: list[dict] = [{"date": as_of, **count()}]
     problems: list[str] = []
 
     def close(sym: str, valid_from: date) -> None:
@@ -242,7 +293,7 @@ def reconstruct(
                 problems.append(f"{d}: remove {a} but it is still a member after the change")
             else:
                 state[a] = d - timedelta(days=1)
-        sizes.append({"date": d - timedelta(days=1), "n": len(state)})
+        sizes.append({"date": d - timedelta(days=1), **count()})
     for sym in list(state):
         close(sym, start)
 
@@ -255,9 +306,9 @@ def reconstruct(
         .sort("symbol", "valid_from")
     )
     size_df = (
-        pl.DataFrame(sizes, schema={"date": pl.Date, "n": pl.Int64})
+        pl.DataFrame(sizes, schema={"date": pl.Date, "n": pl.Int64, "n_companies": pl.Int64})
         .group_by("date")
-        .agg(pl.col("n").last())
+        .agg(pl.col("n").last(), pl.col("n_companies").last())
         .sort("date")
     )
     return Reconstruction(mem, size_df, problems)

@@ -89,3 +89,39 @@ def exclusion_report(
         "by_year": table(["year"]),
         "by_vix_tercile": table(["vix_tercile"]),
     }
+
+
+def survivorship_gap(universe: pl.DataFrame, minute_days: pl.DataFrame) -> pl.DataFrame:
+    """% of eligible stock-days (point-in-time members on trading days) without any
+    1-min data, by year plus an ``ALL`` row. ``minute_days``: (symbol, date) present."""
+    u = universe.join(
+        minute_days.select("symbol", "date").unique().with_columns(_has=pl.lit(True)),
+        on=["symbol", "date"],
+        how="left",
+    ).with_columns(_missing=pl.col("_has").is_null(), year=pl.col("date").dt.year().cast(pl.String))
+
+    def agg(df: pl.DataFrame, key: str) -> pl.DataFrame:
+        return df.group_by(key).agg(
+            eligible_days=pl.len(),
+            missing_days=pl.col("_missing").sum(),
+            symbols_missing=pl.col("symbol").filter(pl.col("_missing")).n_unique(),
+        )
+
+    by_year = agg(u, "year").sort("year")
+    total = agg(u.with_columns(year=pl.lit("ALL")), "year")
+    out = pl.concat([by_year, total.select(by_year.columns)])
+    return out.with_columns(
+        gap_pct=(100 * pl.col("missing_days") / pl.col("eligible_days")).round(3)
+    )
+
+
+def survivorship_header(gap: pl.DataFrame) -> str:
+    """One line for the header of every backtest report."""
+    row = gap.filter(pl.col("year") == "ALL")
+    if row.height == 0 or row["eligible_days"][0] == 0:
+        return "survivorship gap: n/a (no eligible stock-days)"
+    r = row.row(0, named=True)
+    return (
+        f"survivorship gap: {r['gap_pct']:.2f}% of eligible stock-days have no 1-min data "
+        f"({r['missing_days']}/{r['eligible_days']}, {r['symbols_missing']} symbols)"
+    )

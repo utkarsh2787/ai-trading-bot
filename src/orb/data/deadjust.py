@@ -76,3 +76,81 @@ def deadjust_minute(vendor_minute: pl.DataFrame, factors: pl.DataFrame) -> pl.Da
         (pl.col("volume") / pl.col("ratio")).round(0).cast(pl.Int64).alias("volume"),
     )
     return conform_minute(m.drop("date", "ratio"))
+
+
+DRIFT_SCHEMA = {
+    "symbol": pl.String,
+    "start": pl.Date,
+    "end": pl.Date,
+    "n_days": pl.Int64,
+    "segment_factor": pl.Float64,
+    "min_factor": pl.Float64,
+    "max_factor": pl.Float64,
+}
+
+
+def factor_drift(
+    factors: pl.DataFrame, actions: pl.DataFrame, tolerance: float
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Between two corporate actions the vendor's adjustment factor must be constant.
+
+    Segments are delimited by every corporate-action ex-date of the symbol (any
+    type: Kite also adjusts for extraordinary dividends). Within a segment the
+    reference is the median daily ratio; days off by more than ``tolerance`` are
+    DQ errors (``deadjust_factor_drift``). Returns ``(issues, report)``; the
+    report has one row per contiguous run of drifting days.
+    """
+    if factors.height == 0:
+        return pl.DataFrame(schema=ISSUE_SCHEMA), pl.DataFrame(schema=DRIFT_SCHEMA)
+    ex = actions.select("symbol", "ex_date").unique().sort("ex_date")
+    f = factors.sort("symbol", "date")
+    # segment id = number of ex-dates <= date (an ex-date starts a new segment)
+    seg = f.join_asof(
+        ex.with_columns(_n=pl.int_range(1, pl.len() + 1).over("symbol"))
+        .rename({"ex_date": "date"})
+        .sort("date"),
+        on="date",
+        by="symbol",
+        strategy="backward",
+        check_sortedness=False,
+    ).with_columns(_seg=pl.col("_n").fill_null(0))
+    seg = (
+        seg.with_columns(_ref=pl.col("ratio").median().over("symbol", "_seg"))
+        .with_columns(_dev=(pl.col("ratio") / pl.col("_ref") - 1).abs())
+        .sort("symbol", "date")
+    )
+    bad = seg.filter(pl.col("_dev") > tolerance)
+    issues = (
+        bad.select(
+            "symbol",
+            "date",
+            check=pl.lit("deadjust_factor_drift"),
+            severity=pl.lit(ERROR),
+            value=pl.col("ratio"),
+            detail=pl.format("segment factor {}", pl.col("_ref").round(6)),
+        )
+        if bad.height
+        else pl.DataFrame(schema=ISSUE_SCHEMA)
+    )
+    runs = (
+        seg.with_columns(_bad=pl.col("_dev") > tolerance)
+        .with_columns(
+            _run=(pl.col("_bad") != pl.col("_bad").shift(1).over("symbol", "_seg"))
+            .fill_null(True)
+            .cum_sum()
+            .over("symbol")
+        )
+        .filter(pl.col("_bad"))
+        .group_by("symbol", "_seg", "_run")
+        .agg(
+            start=pl.col("date").min(),
+            end=pl.col("date").max(),
+            n_days=pl.len().cast(pl.Int64),
+            segment_factor=pl.col("_ref").first(),
+            min_factor=pl.col("ratio").min(),
+            max_factor=pl.col("ratio").max(),
+        )
+        .select(list(DRIFT_SCHEMA))
+        .sort("symbol", "start")
+    )
+    return issues, runs

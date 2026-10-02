@@ -84,6 +84,20 @@ class ParquetStore:
             return empty(DAILY_SCHEMA)
         return pl.read_parquet(path).filter(pl.col("date").is_between(start, end)).sort("date")
 
+    def minute_dates(self, symbol: str) -> list[date]:
+        """Distinct trade dates with at least one minute bar (reads only ``ts``)."""
+        files = sorted(self.minute_dir(symbol).glob("*.parquet"))
+        if not files:
+            return []
+        return (
+            pl.scan_parquet(files)
+            .select(pl.col("ts").dt.date().unique())
+            .collect()
+            .to_series()
+            .sort()
+            .to_list()
+        )
+
     def symbols(self, kind: str) -> list[str]:
         base = self.root / kind
         if not base.exists():

@@ -175,3 +175,53 @@ def test_integration_real_kite_store_matches_bhavcopy(bhav):
         )
         assert m["high"].max() == pytest.approx(real["high"], rel=0.002)
         assert m["low"].min() == pytest.approx(real["low"], rel=0.002)
+
+
+def _factors(rows):
+    return pl.DataFrame(
+        rows, schema={"symbol": pl.String, "date": pl.Date, "ratio": pl.Float64}, orient="row"
+    )
+
+
+def test_factor_constant_between_actions_passes_and_steps_at_ex_date(cfg):
+    from orb.data.deadjust import factor_drift
+
+    days = [date(2021, 10, d) for d in (25, 26, 27, 28, 29)]
+    f = _factors([("IRCTC", d, 5.0 if d < date(2021, 10, 28) else 1.0) for d in days])
+    issues, runs = factor_drift(f, ACTIONS, cfg.data.deadjust_drift_tolerance)
+    assert issues.height == 0 and runs.height == 0  # the step is at the split ex-date
+
+
+def test_factor_drift_flagged_and_reported(cfg):
+    from orb.data.deadjust import factor_drift
+
+    days = [date(2021, 9, d) for d in range(1, 11)]
+    ratios = [5.0] * 10
+    ratios[3] = ratios[4] = 5.02  # +0.4% for two days: Kite revised / unknown action
+    ratios[8] = 5.004  # +0.08%: within 0.1%
+    f = _factors([("IRCTC", d, r) for d, r in zip(days, ratios, strict=True)])
+    issues, runs = factor_drift(f, ACTIONS, cfg.data.deadjust_drift_tolerance)
+    assert issues["date"].to_list() == [days[3], days[4]]
+    assert set(issues["check"]) == {"deadjust_factor_drift"}
+    assert runs.to_dicts() == [
+        {
+            "symbol": "IRCTC",
+            "start": days[3],
+            "end": days[4],
+            "n_days": 2,
+            "segment_factor": 5.0,
+            "min_factor": 5.02,
+            "max_factor": 5.02,
+        }
+    ]
+
+
+def test_unrecorded_vendor_adjustment_shows_as_drift(cfg):
+    """Kite adjusted for something not in our corporate-action file (e.g. an
+    extraordinary dividend): the factor steps mid-segment -> drift."""
+    from orb.data.deadjust import factor_drift
+
+    days = [date(2021, 9, d) for d in range(1, 21)]
+    f = _factors([("SRF", d, 5.0 if i < 12 else 5.1) for i, d in enumerate(days)])
+    issues, runs = factor_drift(f, ACTIONS, cfg.data.deadjust_drift_tolerance)
+    assert runs.height == 1 and runs["n_days"][0] == 8  # minority side of the step

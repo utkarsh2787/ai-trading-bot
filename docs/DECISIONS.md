@@ -55,8 +55,22 @@ runs on numpy arrays extracted from polars. **pydantic v2** validates config.
 | 36 | Nifty 200 history | Rebuilt backwards from the current constituents using parsed niftyindices press-release PDFs, symbol renames and manual corrections. Every date is checked to hold exactly 200 names. |
 | 37 | Rights / demerger factors | Rights: TERP / cum price, using the raw close before the ex-date and face value + premium as the issue price. Demerger: no factor (it needs post-listing values); the ex-date is excluded and the DQ gap rule flags any jump. |
 | 38 | Breakout scan window | Only candles 09:30–14:30 are scanned. A first breakout after 14:30 couldn't be traded, so it isn't logged. |
-| 39 | Excluded stock-days | Not scanned at all (DQ error, F&O ban, corporate action, special session or calendar exception). They are counted in the exclusion report instead. |
+| 39 | Excluded stock-days | *Superseded by 46.* |
 | 40 | Decision order | `INSUFFICIENT_HISTORY` (ATR or RV), then `MARKET_DATA_MISSING`, then `FILTERED_OR_WIDTH`, then `SCORE_BELOW_THRESHOLD`, then `QUALIFIED`. A filtered signal still gets a score, so its label can feed score-validity tables. |
 | 41 | Index choice | Per day: Nifty 200 if it has no DQ error and has a 09:15 candle, otherwise Nifty 50 (`index_substituted = true`, logged). If neither is usable: `MARKET_DATA_MISSING`. r_idx uses the last index close at or before t. |
 | 42 | Scorer interface | The scanner calls only `Scorer.score(features)`, with features `side` (+1 or −1), `d`, `rv`, `r_idx`, `w`, `v`. `explain()` is optional and used for logging only. Tested with a non-rule scorer. |
 | 43 | Spin-off index treatment | Temporary inclusion of a demerged entity in Nifty 200, and its exclusion a few days later, are non-events for the universe. They are not tradable in a meaningful way, and they are often listed under a dummy symbol. |
+
+## Additions (review round 3)
+
+| # | Topic | Decision |
+|---|-------|----------|
+| 44 | Factor drift | The daily Kite/bhavcopy factor (median of the O/H/L/C ratios) must be constant within 0.1% (`data.deadjust_drift_tolerance`) between consecutive corporate-action ex-dates of any type. The reference is the segment median. Drifting days are DQ errors (`deadjust_factor_drift`), and `data/_dq/factor_drift.csv` lists each run: symbol, start, end, days, segment factor, min, max. A drift also shows up when Kite adjusted for an action missing from our corporate-action file. |
+| 45 | Vendor snapshots | `orb download` writes into `vendor/<provider>/snapshots/<id>/`. `orb snapshot freeze` hashes every file and makes it read-only. `build-raw` only reads a frozen, verified snapshot and records its id and content hash in `raw/BUILD.json`. The run data version = hash(snapshot hash, raw store, reference files). |
+| 46 | Excluded stock-days | Scanned and logged with every computable feature, with decision `EXCLUDED` and reason `EXCLUDED_SESSION`, `EXCLUDED_DQ`, `EXCLUDED_CORP_ACTION` or `EXCLUDED_BAN` (precedence in that order; all raw reasons are kept in `exclusion_detail`). They are never traded, and never used as RV baseline sessions. |
+| 47 | Survivorship gap | % of point-in-time member stock-days on trading days with no 1-min data, by year (`_dq/survivorship_gap.csv`, and per run). It is printed as the first line of every backtest summary. Nothing blocks on vendor data. |
+| 48 | Nifty 200 size check | Counts companies: Tata Motors DVR is a second share class (the index held 201 securities while TATAMTRDVR was a member). |
+| 49 | Manual index changes | `manual/nifty200_changes_manual.csv` (`effective_date, symbol, change, source, needs_review, note`) is applied on every build. Rows transcribed by OCR or inferred are `needs_review = true`. Image-only PDFs are OCR'd (poppler + tesseract) for review, never parsed automatically. |
+| 50 | Merger candidates | `orb ref mergers` pre-fills `manual/mergers.csv` from press-release "amalgamation of X with/into Y" text, mapped to symbols via release tables and confirmed by the target's bhavcopy history ending. All rows are `needs_review = true`. `orb ref symbols` applies only reviewed rows. Share counts aren't in public NSE data, so the share-count-jump signal isn't used. |
+| 51 | Engine | Every signal is simulated for each variant × slippage multiplier, sized as if taken. The portfolio then books per run. In the conservative variant, a stop on the entry candle fills at the stop minus slippage (the open is the entry). Contract-note rounding is computed per day over that run's taken orders. Results are reported with and without it. |
+

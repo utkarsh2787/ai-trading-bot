@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from orb.scoring import RuleScorer
-from orb.signals import FILTERED, QUALIFIED, REJECTED, scan_day
+from orb.signals import EXCLUDED, FILTERED, QUALIFIED, REJECTED, scan_day
 from tests.market import Market, bars_from_arrays, flat_daily, weekdays
 
 N = 375
@@ -113,12 +113,92 @@ def test_index_fallback_and_missing(cfg):
     assert (r["decision"], r["reason"]) == (REJECTED, "MARKET_DATA_MISSING")
 
 
-def test_excluded_stock_day_not_scanned(cfg):
+@pytest.mark.parametrize(
+    "symbol, reasons, expected",
+    [
+        ("AAA", ["DUPLICATE_TIMESTAMP"], "EXCLUDED_DQ"),
+        ("AAA", ["FNO_BAN"], "EXCLUDED_BAN"),
+        ("AAA", ["CORPORATE_ACTION_SPLIT"], "EXCLUDED_CORP_ACTION"),
+        ("*", ["SPECIAL_SESSION_MUHURAT"], "EXCLUDED_SESSION"),
+        ("AAA", ["FNO_BAN", "EXTREME_GAP", "CORPORATE_ACTION_BONUS"], "EXCLUDED_DQ"),
+    ],
+)
+def test_excluded_stock_days_are_logged_with_features(cfg, symbol, reasons, expected):
     m, T = golden_market(cfg)
-    m.excluded = pl.DataFrame({"symbol": ["AAA"], "date": [T]})
+    m.excluded = pl.DataFrame({"symbol": symbol, "date": T, "reason": reasons})
+    out = scan(m, T)
+    assert out.height == 1  # still in the signal log ...
+    r = out.row(0, named=True)
+    assert (r["decision"], r["reason"]) == (EXCLUDED, expected)  # ... but never traded
+    assert r["score"] == pytest.approx(100.0) and r["d"] == pytest.approx(0.1)
+    assert r["exclusion_detail"] == ";".join(sorted(reasons))
+
+
+def test_excluded_day_with_partial_features(cfg):
+    m, T = golden_market(cfg, n_days=60)  # no ATR, but OR / RV / index computable
+    m.excluded = pl.DataFrame({"symbol": ["AAA"], "date": [T], "reason": ["FNO_BAN"]})
+    r = scan(m, T).row(0, named=True)
+    assert r["reason"] == "EXCLUDED_BAN"
+    assert r["d"] is None and r["score"] is None
+    assert r["rv"] == pytest.approx(2.5) and r["r_idx"] == pytest.approx(0.002)
+
+
+def test_market_data_missing_only_when_both_indices_unavailable(cfg):
+    m, T = golden_market(cfg)
+    n50 = m.index_minute.with_columns(symbol=pl.lit("NIFTY 50"))
+    m.index_minute = pl.concat([m.index_minute, n50])
+    # both fine -> Nifty 200
+    r = scan(m, T).row(0, named=True)
+    assert r["index_used"] == "NIFTY 200" and not r["index_substituted"]
+    # Nifty 200 fails DQ -> Nifty 50, flagged; score unchanged
+    m.index_invalid = {("NIFTY 200", T)}
+    r = scan(m, T).row(0, named=True)
+    assert (r["index_used"], r["index_substituted"], r["decision"]) == ("NIFTY 50", True, QUALIFIED)
+    # Nifty 200 has no 09:15 candle -> Nifty 50
+    m.index_invalid = set()
+    m.index_minute = m.index_minute.filter(
+        ~(
+            (pl.col("symbol") == "NIFTY 200")
+            & (pl.col("ts").dt.date() == T)
+            & (pl.col("ts").dt.minute() == 15)
+            & (pl.col("ts").dt.hour() == 9)
+        )
+    )
+    assert scan(m, T).row(0, named=True)["index_used"] == "NIFTY 50"
+    # Nifty 50 also missing -> only now MARKET_DATA_MISSING
+    m.index_invalid = {("NIFTY 50", T)}
+    r = scan(m, T).row(0, named=True)
+    assert (r["decision"], r["reason"]) == (REJECTED, "MARKET_DATA_MISSING")
+    assert r["index_used"] is None
+
+
+def test_or_not_usable_before_0929_close_and_first_signal_is_0930(cfg):
+    m, T = golden_market(cfg)
+    day = pl.col("ts").dt.date() == T
+    slot = (
+        pl.col("ts").dt.hour().cast(pl.Int32) * 60 + pl.col("ts").dt.minute().cast(pl.Int32)
+    ) - (9 * 60 + 15)
+    base = m.minute
+    # a huge close at 09:28 (inside the OR window) is never a signal
+    m.minute = base.filter(~day | (slot <= 13)).with_columns(
+        close=pl.when(day & (slot == 13)).then(150.0).otherwise("close"),
+        high=pl.when(day & (slot == 13)).then(150.0).otherwise("high"),
+    )
     assert scan(m, T).height == 0
-    m.excluded = pl.DataFrame({"symbol": ["*"], "date": [T]})  # whole-market day
+    # data through 09:29: still no signal (the OR is only complete at the 09:29 close)
+    m.minute = base.filter(~day | (slot <= 14))
     assert scan(m, T).height == 0
+    # the 09:29 candle is part of the OR: raising its high to 101.5 means a 101.3 close
+    # at 09:44 no longer breaks out
+    m.minute = base.with_columns(high=pl.when(day & (slot == 14)).then(101.5).otherwise("high"))
+    assert scan(m, T).height == 0
+    # earliest possible signal: the 09:30 candle
+    m.minute = base.with_columns(
+        close=pl.when(day & (slot == 15)).then(101.3).otherwise("close"),
+        high=pl.when(day & (slot == 15)).then(101.35).otherwise("high"),
+    )
+    r = scan(m, T).row(0, named=True)
+    assert r["signal_slot"] == 15 and (r["signal_ts"].hour, r["signal_ts"].minute) == (9, 30)
 
 
 class ConstantScorer:

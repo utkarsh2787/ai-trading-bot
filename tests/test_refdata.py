@@ -347,3 +347,13 @@ def test_spinoff_releases_are_non_events():
     assert nifty200.classify_release("NSE Indices launches Nifty200 Value 30", adj) == "ignore"
     semi = nifty200.parse_release((FIX / "prs_21022025_excerpt.txt").read_text())
     assert nifty200.classify_release("Replacements in indices", semi) == "changes"
+
+
+def test_wrapped_table_row_is_parsed():
+    text = (
+        "These changes shall become effective from June 26, 2020.\n12) NIFTY 200\n"
+        "The following companies are being included:\nSr. No. Company Name Symbol\n"
+        "5 Gujarat Gas Ltd. GUJGASLTD\n6 \nIndian Railway Catering And Tourism \n"
+        "Corporation Ltd. IRCTC\n7 NIIT Technologies Ltd. NIITTECH\n13) NIFTY Auto\n"
+    )
+    assert nifty200.parse_release(text).adds == ["GUJGASLTD", "IRCTC", "NIITTECH"]

@@ -3,7 +3,10 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
-/data/
+/data/*
+!/data/ref/
+/data/ref/*
+!/data/ref/manual/
 /vendor/
 /runs/
 *.tmp

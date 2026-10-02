@@ -92,6 +92,7 @@ class DataConfig(_Model):
     daily_history_start: date
     minute_history_start: date
     deadjust_tolerance: float = Field(gt=0)  # max OHLC ratio dispersion vs bhavcopy
+    deadjust_drift_tolerance: float = Field(gt=0)  # factor drift between corporate actions
     index: IndexConfig
     kite: KiteConfig
     local: LocalConfig

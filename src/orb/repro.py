@@ -32,7 +32,9 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def data_version(root: str | Path, cache_file: str | Path | None = None) -> str:
+def data_version(
+    root: str | Path, cache_file: str | Path | None = None, exclude_dirs: tuple[str, ...] = ()
+) -> str:
     """sha256 over (relative path, content hash) of every Parquet/CSV under root.
 
     Per-file hashes are cached keyed by (size, mtime_ns) so repeat calls are cheap;
@@ -42,7 +44,13 @@ def data_version(root: str | Path, cache_file: str | Path | None = None) -> str:
     cache_path = Path(cache_file) if cache_file else root / "_manifest" / "file_hashes.json"
     cache: dict[str, list] = json.loads(cache_path.read_text()) if cache_path.exists() else {}
     entries = []
-    files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix in (".parquet", ".csv"))
+    files = sorted(
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and p.suffix in (".parquet", ".csv")
+        and not set(p.relative_to(root).parts[:-1]) & set(exclude_dirs)
+    )
     for p in files:
         rel = p.relative_to(root).as_posix()
         st = p.stat()
@@ -56,9 +64,25 @@ def data_version(root: str | Path, cache_file: str | Path | None = None) -> str:
     return hashlib.sha256("\n".join(entries).encode()).hexdigest()
 
 
-def run_metadata(cfg: Config, data_root: str | Path, repo: str | Path = ".") -> dict[str, object]:
+def data_versions(cfg: Config) -> dict[str, object]:
+    """Vendor snapshot (frozen, immutable) + raw store + reference files."""
+    from orb.data.pipeline import read_build_record
+
+    root = Path(cfg.data.root)
+    build = read_build_record(root / "raw") or {}
+    raw_v = data_version(root / "raw", root / "_manifest" / "raw_hashes.json")
+    ref_v = data_version(
+        cfg.reference.root, root / "_manifest" / "ref_hashes.json", exclude_dirs=("_cache",)
+    )
+    parts = [build.get("snapshot_hash") or "no-snapshot", raw_v, ref_v]
     return {
-        "config_hash": cfg.hash(),
-        "git": git_state(repo),
-        "data_version": data_version(data_root),
+        "vendor_snapshot_id": build.get("snapshot_id"),
+        "vendor_snapshot_hash": build.get("snapshot_hash"),
+        "raw_hash": raw_v,
+        "reference_hash": ref_v,
+        "data_version": hashlib.sha256("|".join(parts).encode()).hexdigest(),
     }
+
+
+def run_metadata(cfg: Config, repo: str | Path = ".") -> dict[str, object]:
+    return {"config_hash": cfg.hash(), "git": git_state(repo), **data_versions(cfg)}

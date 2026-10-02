@@ -76,3 +76,15 @@ def test_vix_terciles_use_prev_close_and_in_sample_cuts():
     # in-sample prev closes 10..15 -> cuts at 11.67 / 13.33; OOS 16..18 -> high
     assert t.filter(pl.col("date") >= date(2020, 1, 8))["vix_tercile"].to_list() == ["high"] * 3
     assert t["vix_tercile"][1] == "low"
+
+
+def test_survivorship_gap_by_year_and_header():
+    from orb.data.exclusions import survivorship_gap, survivorship_header
+
+    uni = pl.DataFrame({"symbol": ["A", "B", "A", "B"], "date": [D1, D1, D3, D3]})
+    have = pl.DataFrame({"symbol": ["A", "A", "B"], "date": [D1, D3, D3]})  # B missing on D1
+    g = survivorship_gap(uni, have)
+    rows = {r["year"]: r for r in g.to_dicts()}
+    assert rows["2024"]["gap_pct"] == 50.0 and rows["2025"]["gap_pct"] == 0.0
+    assert rows["ALL"]["missing_days"] == 1 and rows["ALL"]["gap_pct"] == 25.0
+    assert survivorship_header(g).startswith("survivorship gap: 25.00% of eligible stock-days")
