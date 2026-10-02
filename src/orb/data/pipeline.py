@@ -12,7 +12,7 @@ Everything downstream (DQ, features, backtest) reads ``raw/`` only.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -82,6 +82,48 @@ class BuildReport:
         return pl.concat(parts) if parts else pl.DataFrame(schema=DRIFT_SCHEMA)
 
 
+def name_windows(symbol: str, renames: pl.DataFrame | None) -> list[tuple[str, date, date]]:
+    """Which exchange symbol was in force when, along the rename chain through
+    ``symbol``: [(name, from, to)] covering all time (inclusive bounds).
+
+    Kite returns a renamed stock's whole history under today's symbol, while the
+    bhavcopy lists each day under the name in force that day, so the bhavcopy
+    must be read per window (e.g. LTI -> LTIM -> LTM)."""
+    lo, hi = date(1900, 1, 1), date(2100, 12, 31)
+    if renames is None or renames.height == 0:
+        return [(symbol, lo, hi)]
+    r = renames.select("old_symbol", "new_symbol", "effective_date")
+    back = {n: (o, e) for o, n, e in r.iter_rows()}
+    fwd = {o: (n, e) for o, n, e in r.iter_rows()}
+    root, seen = symbol, {symbol}
+    while root in back and back[root][0] not in seen:  # oldest name
+        root = back[root][0]
+        seen.add(root)
+    chain = [(root, lo)]
+    while chain[-1][0] in fwd and fwd[chain[-1][0]][0] not in {c for c, _ in chain}:
+        new, eff = fwd[chain[-1][0]]
+        chain.append((new, eff))
+    out = []
+    for i, (name, start) in enumerate(chain):
+        end = chain[i + 1][1] - timedelta(days=1) if i + 1 < len(chain) else hi
+        out.append((name, start, end))
+    return out
+
+
+def bhav_for(
+    symbol: str, raw: ParquetStore, start: date, end: date, renames: pl.DataFrame | None
+) -> pl.DataFrame:
+    """Raw bhavcopy bars for ``symbol`` across renames, labelled ``symbol``."""
+    parts = []
+    for name, a, b in name_windows(symbol, renames):
+        a, b = max(a, start), min(b, end)
+        if a <= b:
+            d = raw.read_daily(name, a, b)
+            if d.height:
+                parts.append(d.with_columns(symbol=pl.lit(symbol)))
+    return pl.concat(parts).sort("date") if parts else raw.read_daily(symbol, start, end)
+
+
 def build_raw_symbol(
     symbol: str,
     stores: Stores,
@@ -93,6 +135,7 @@ def build_raw_symbol(
     report: BuildReport,
     actions: pl.DataFrame | None = None,
     drift_tolerance: float | None = None,
+    renames: pl.DataFrame | None = None,
 ) -> None:
     minute = stores.vendor.read_minute(symbol, start, end)
     if is_index:
@@ -102,7 +145,7 @@ def build_raw_symbol(
     elif price_basis == "raw":
         stores.raw.write_minute(minute)
     else:
-        bhav = stores.raw.read_daily(symbol, start, end)
+        bhav = bhav_for(symbol, stores.raw, start, end, renames)
         vendor_daily = stores.vendor.read_daily(symbol, start, end)
         factors, issues = deadjust_factors(vendor_daily, bhav, tolerance)
         report.issues.append(issues)

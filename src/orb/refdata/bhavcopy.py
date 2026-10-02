@@ -77,7 +77,11 @@ def parse(csv: bytes, series: list[str], name: str | None = None) -> pl.DataFram
         df = df.select(
             symbol=pl.col("SYMBOL").str.strip_chars(),
             series=pl.col("SERIES").str.strip_chars(),
-            date=pl.col("TIMESTAMP").str.strip_chars().str.to_date("%d-%b-%Y"),
+            # some regenerated files use a two-digit year ("13-Jul-20"); %Y would
+            # silently read that as the year 20, so pick the format by its length
+            date=pl.when(pl.col("TIMESTAMP").str.strip_chars().str.contains(r"-\d{4}$"))
+            .then(pl.col("TIMESTAMP").str.strip_chars().str.to_date("%d-%b-%Y", strict=False))
+            .otherwise(pl.col("TIMESTAMP").str.strip_chars().str.to_date("%d-%b-%y", strict=False)),
             open=pl.col("OPEN"),
             high=pl.col("HIGH"),
             low=pl.col("LOW"),

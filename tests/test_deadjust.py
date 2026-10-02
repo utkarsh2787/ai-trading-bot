@@ -225,3 +225,45 @@ def test_unrecorded_vendor_adjustment_shows_as_drift(cfg):
     f = _factors([("SRF", d, 5.0 if i < 12 else 5.1) for i, d in enumerate(days)])
     issues, runs = factor_drift(f, ACTIONS, cfg.data.deadjust_drift_tolerance)
     assert runs.height == 1 and runs["n_days"][0] == 8  # minority side of the step
+
+
+def test_bhavcopy_read_across_renames(tmp_path):
+    from orb.data.pipeline import bhav_for, name_windows
+    from orb.data.store import ParquetStore
+
+    renames = pl.DataFrame(
+        {
+            "old_symbol": ["LTI", "LTIM"],
+            "new_symbol": ["LTIM", "LTM"],
+            "effective_date": [date(2022, 12, 5), date(2026, 2, 27)],
+        }
+    )
+    assert [n for n, _, _ in name_windows("LTM", renames)] == ["LTI", "LTIM", "LTM"]
+    raw = ParquetStore(tmp_path)
+    for sym, d in (
+        ("LTI", date(2022, 12, 2)),
+        ("LTIM", date(2022, 12, 5)),
+        ("LTIM", date(2026, 2, 26)),
+        ("LTM", date(2026, 2, 27)),
+    ):
+        raw.write_daily(
+            pl.DataFrame(
+                {
+                    "symbol": [sym],
+                    "date": [d],
+                    "open": [1.0],
+                    "high": [1.0],
+                    "low": [1.0],
+                    "close": [1.0],
+                    "volume": [1],
+                }
+            )
+        )
+    got = bhav_for("LTM", raw, date(2022, 1, 1), date(2026, 12, 31), renames)
+    assert got["date"].to_list() == [
+        date(2022, 12, 2),
+        date(2022, 12, 5),
+        date(2026, 2, 26),
+        date(2026, 2, 27),
+    ]
+    assert set(got["symbol"]) == {"LTM"}

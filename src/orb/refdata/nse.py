@@ -280,7 +280,14 @@ def download_bhavcopy(
             if day.weekday() < 5:
                 missing.append(day)
             continue
-        parts.append(bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series, name=url))
+        df = bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series, name=url)
+        bad = df.filter(pl.col("date") != day)
+        if bad.height:  # a file's rows must all carry the requested trading date
+            raise ValueError(
+                f"{url}: {bad.height} rows dated {bad['date'].unique().to_list()[:3]}, "
+                f"expected {day}"
+            )
+        parts.append(df)
     df = pl.concat(parts) if parts else empty(DAILY_SCHEMA)
     return df, missing
 

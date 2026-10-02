@@ -454,3 +454,25 @@ def test_special_session_draft_rules():
     assert d[date(2024, 10, 7)]["note"].startswith("detected; not in the candidate list")
     assert "no bhavcopy" in d[date(2024, 12, 25)]["note"]
     assert all(r["needs_review"] for r in d.values())
+
+
+def test_bhavcopy_two_digit_year():
+    csv = (
+        b"SYMBOL,SERIES,OPEN,HIGH,LOW,CLOSE,LAST,PREVCLOSE,TOTTRDQTY,TOTTRDVAL,TIMESTAMP,"
+        b"TOTALTRADES,ISIN\nRELIANCE,EQ,1903.35,1947.7,1900,1935,1938.7,1878.05,32124397,"
+        b"61905840823,13-Jul-20,615947,INE002A01018\n"
+    )
+    assert bhavcopy.parse(csv, ["EQ"])["date"].to_list() == [date(2020, 7, 13)]
+
+
+def test_bhavcopy_date_must_match_requested_day(cfg):
+    import io as _io
+    import zipfile
+
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("cm27OCT2021bhav.csv", (FIX / "cm27OCT2021bhav.csv").read_bytes())
+    n = cfg.data.nse
+    f = DictFetcher({nse.bhavcopy.legacy_url(n.archives_base, date(2021, 10, 28)): buf.getvalue()})
+    with pytest.raises(ValueError, match="expected 2021-10-28"):
+        nse.download_bhavcopy(f, n, date(2021, 10, 28), date(2021, 10, 28))

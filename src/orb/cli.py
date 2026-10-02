@@ -228,6 +228,7 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
     ref = load_reference(cfg.reference)
     indices = set(index_symbols(cfg))
     report = BuildReport()
+    renames = ref.symbol_map.filter(pl.col("change_type") == "rename")
     if not args.symbols:  # full rebuild from this snapshot: drop minute bars of older builds
         shutil.rmtree(Path(cfg.data.root) / "raw" / "minute", ignore_errors=True)
     for symbol in args.symbols or stores.vendor.symbols("minute"):
@@ -242,6 +243,7 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
             report,
             ref.corporate_actions,
             cfg.data.deadjust_drift_tolerance,
+            renames,
         )
     issues = report.issue_frame()
     out = Path(cfg.data.root) / "_dq"
@@ -313,7 +315,12 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     print(issues.group_by("check", "severity").agg(n=pl.len()).sort("severity", "check"))
 
     # exclusion report over point-in-time universe stock-days
-    days = raw.read_daily(cfg.data.index.primary, start, end)["date"].to_list()
+    whole_market = set(ref.day_exclusions()["date"].to_list())  # sessions/outages: not eligible
+    days = [
+        d
+        for d in raw.read_daily(cfg.data.index.primary, start, end)["date"].to_list()
+        if d not in whole_market
+    ]
     universe = universe_days(ref.membership, days)
     excl = exclusion_table(issues, ref, cfg.reference.excluding_action_types, universe)
     vix = vix_terciles(

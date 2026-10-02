@@ -242,13 +242,14 @@ class Engine:
         sig_parts, sim_rows, book_parts, cov, null_rows = [], [], [], [], []
         for d in days:
             inputs = self.builder.day(d)
-            cov.append(
-                {
-                    "date": d,
-                    "members": len(inputs.stocks) + len(inputs.no_data),
-                    "no_data": len(inputs.no_data),
-                }
-            )
+            if d not in self.builder.excluded_all:  # whole-market excluded days aren't eligible
+                cov.append(
+                    {
+                        "date": d,
+                        "members": len(inputs.stocks) + len(inputs.no_data),
+                        "no_data": len(inputs.no_data),
+                    }
+                )
             signals = scan_day(inputs, self.cfg, self.scorer)
             if signals.height == 0:
                 continue
