@@ -357,3 +357,62 @@ def test_wrapped_table_row_is_parsed():
         "Corporation Ltd. IRCTC\n7 NIIT Technologies Ltd. NIITTECH\n13) NIFTY Auto\n"
     )
     assert nifty200.parse_release(text).adds == ["GUJGASLTD", "IRCTC", "NIITTECH"]
+
+
+# ----------------------------------------------------------- expiries / results
+
+
+def test_fo_expiries_both_formats_and_classification():
+    old = nse.parse_fo_expiries((FIX / "fo27OCT2021bhav.csv").read_bytes())
+    new = nse.parse_fo_expiries((FIX / "BhavCopy_NSE_FO_0_0_0_20250801_F_0000.csv").read_bytes())
+    e = nse.classify_expiries(pl.concat([old, new]))
+    got = {(r["date"], r["expiry_type"]): r["underlyings"] for r in e.to_dicts()}
+    assert got[(date(2021, 10, 28), "index_monthly")] == "BANKNIFTY;NIFTY"
+    assert got[(date(2021, 10, 28), "stock_monthly")] == "RELIANCE"
+    assert got[(date(2021, 11, 3), "index_weekly")] == "BANKNIFTY;NIFTY"
+    assert got[(date(2021, 11, 25), "index_monthly")] == "BANKNIFTY;NIFTY"
+    # long-dated option with no futures yet is still a monthly expiry
+    assert got[(date(2022, 6, 30), "index_monthly")] == "BANKNIFTY;NIFTY"
+    # 2025: Nifty weeklies on Thursdays, monthly on the last Thursday
+    assert got[(date(2025, 8, 21), "index_weekly")] == "NIFTY"
+    assert got[(date(2025, 8, 28), "index_monthly")] == "BANKNIFTY;NIFTY"
+    assert (date(2025, 8, 28), "index_weekly") not in got
+
+
+def test_download_expiries_samples_weekly(cfg):
+    n = cfg.data.nse
+    blob = (FIX / "fo27OCT2021bhav.csv").read_bytes()
+    import io as _io
+    import zipfile
+
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("fo27OCT2021bhav.csv", blob)
+    f = DictFetcher({nse.fo_urls(n, date(2021, 10, 27))[0]: buf.getvalue()})
+    df = nse.download_expiries(f, n, date(2021, 10, 25), date(2021, 12, 31))
+    assert date(2021, 11, 3) in df["date"].to_list()
+    assert len(f.calls) <= 2 * 5 * 10  # <= 5 weekdays x 2 formats per sampled week
+
+
+def test_results_meetings_real_payload():
+    recs = json.loads((FIX / "board_meetings_oct2024.json").read_text())
+    df = nse.parse_results_meetings(recs)
+    rows = {(r["symbol"], r["date"]) for r in df.to_dicts()}
+    assert ("INFY", date(2024, 10, 17)) in rows and ("HDFCBANK", date(2024, 10, 19)) in rows
+    assert ("AGSTRA", date(2024, 10, 31)) in rows  # intimation whose text says results
+    assert not any(s == "IIFL" for s, _ in rows)  # fund raising only
+
+
+def test_results_day_is_meeting_date_or_next_trading_day():
+    from orb.regimes import results_days
+
+    cal = [date(2024, 10, d) for d in (17, 18, 21, 22)]  # 19-20 is a weekend
+    res = pl.DataFrame(
+        {"symbol": ["INFY", "HDFCBANK"], "date": [date(2024, 10, 17), date(2024, 10, 19)]}
+    )
+    tagged = {(r["symbol"], r["date"]) for r in results_days(res, cal).to_dicts()}
+    assert tagged == {
+        ("INFY", date(2024, 10, 17)),
+        ("INFY", date(2024, 10, 18)),
+        ("HDFCBANK", date(2024, 10, 21)),
+    }  # Saturday meeting -> Monday

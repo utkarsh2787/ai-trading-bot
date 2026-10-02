@@ -268,6 +268,24 @@ class RefBuilder:
         self._write(ca, self.cfg.reference.corporate_actions)
         return ca
 
+    # ------------------------------------------------------- expiries/results
+    def expiries(self, start: date, end: date) -> pl.DataFrame:
+        df = nse.download_expiries(self.fetch("fo_bhavcopy"), self.n, start, end)
+        self._write(df, self.cfg.reference.expiries)
+        return df
+
+    def results_dates(self, start: date, end: date) -> pl.DataFrame:
+        df = nse.download_results_dates(
+            self.fetch("board_meetings"),
+            self.n,
+            start,
+            end,
+            fresh=self.fetch("board_meetings", refresh=True),
+            today=date.today(),
+        )
+        self._write(df, self.cfg.reference.results_dates)
+        return df
+
     # -------------------------------------------------------------------- ban
     def ban_list(self, start: date, end: date) -> pl.DataFrame:
         ban = nse.download_ban(self.fetch("ban"), self.n, start, end)

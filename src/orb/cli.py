@@ -71,7 +71,11 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
     b = RefBuilder(cfg)
     raw = Stores.raw_only(cfg.data.root)
     start, end = cfg.data.daily_history_start, _end(cfg)
-    steps = ["symbols", "nifty200", "bhavcopy", "ca", "ban"] if args.what == "all" else [args.what]
+    steps = (
+        ["symbols", "nifty200", "bhavcopy", "ca", "ban", "expiries", "results"]
+        if args.what == "all"
+        else [args.what]
+    )
     for step in steps:
         log.info("ref: %s", step)
         if step == "symbols":
@@ -86,6 +90,10 @@ def cmd_ref(cfg: Config, args: argparse.Namespace) -> None:
             b.ban_list(cfg.data.minute_history_start, end)
         elif step == "mergers":
             b.merger_candidates(raw)
+        elif step == "expiries":
+            b.expiries(cfg.data.minute_history_start, end)
+        elif step == "results":
+            b.results_dates(cfg.data.minute_history_start, end)
 
 
 # ----------------------------------------------------------------- download
@@ -300,7 +308,18 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("ref", help="download/parse reference data from NSE public sources")
     r.add_argument(
-        "what", choices=["symbols", "nifty200", "bhavcopy", "ca", "ban", "mergers", "all"]
+        "what",
+        choices=[
+            "symbols",
+            "nifty200",
+            "bhavcopy",
+            "ca",
+            "ban",
+            "expiries",
+            "results",
+            "mergers",
+            "all",
+        ],
     )
     d = sub.add_parser("download", help="fetch and cache vendor bars (resumable)")
     d.add_argument("--kind", choices=["daily", "minute", "all"], default="all")

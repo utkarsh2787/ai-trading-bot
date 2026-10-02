@@ -9,6 +9,7 @@ Sources (all public, fetched with ``orb ref ...``):
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from collections.abc import Iterable
@@ -274,3 +275,154 @@ def download_bhavcopy(
         parts.append(bhavcopy.parse(bhavcopy.unzip_single(body), cfg.series))
     df = pl.concat(parts) if parts else empty(DAILY_SCHEMA)
     return df, missing
+
+
+# ---------------------------------------------------------------- expiries
+
+FO_INDEX_TYPES = {"FUTIDX", "OPTIDX", "IDF", "IDO"}
+FO_STOCK_TYPES = {"FUTSTK", "OPTSTK", "STF", "STO"}
+
+
+def fo_urls(cfg: NSEConfig, day: date) -> list[str]:
+    mon = day.strftime("%b").upper()
+    legacy = (
+        f"{cfg.archives_base}/content/historical/DERIVATIVES/{day.year}/{mon}/"
+        f"fo{day:%d}{mon}{day.year}bhav.csv.zip"
+    )
+    udiff = f"{cfg.archives_base}/content/fo/BhavCopy_NSE_FO_0_0_0_{day:%Y%m%d}_F_0000.csv.zip"
+    return [udiff, legacy] if day >= cfg.bhavcopy_udiff_from else [legacy, udiff]
+
+
+def parse_fo_expiries(csv: bytes) -> pl.DataFrame:
+    """F&O bhavcopy (either format) -> distinct (underlying, kind, expiry);
+    kind = 'index' | 'stock'."""
+    df = pl.read_csv(io.BytesIO(csv), infer_schema_length=0, truncate_ragged_lines=True)
+    df = df.rename({c: c.strip() for c in df.columns})
+    if "FinInstrmTp" in df.columns:
+        df = df.select(
+            inst=pl.col("FinInstrmTp"),
+            underlying=pl.col("TckrSymb"),
+            expiry=pl.col("XpryDt").str.strip_chars().str.to_date("%Y-%m-%d"),
+        )
+    else:
+        df = df.select(
+            inst=pl.col("INSTRUMENT"),
+            underlying=pl.col("SYMBOL"),
+            expiry=pl.col("EXPIRY_DT").str.strip_chars().str.to_date("%d-%b-%Y"),
+        )
+    df = df.with_columns(pl.col("inst").str.strip_chars(), pl.col("underlying").str.strip_chars())
+    kind = (
+        pl.when(pl.col("inst").is_in(list(FO_INDEX_TYPES)))
+        .then(pl.lit("index"))
+        .when(pl.col("inst").is_in(list(FO_STOCK_TYPES)))
+        .then(pl.lit("stock"))
+    )
+    return (
+        df.with_columns(kind=kind)
+        .filter(pl.col("kind").is_not_null())
+        .select("underlying", "kind", "expiry")
+        .unique()
+    )
+
+
+def classify_expiries(contracts: pl.DataFrame) -> pl.DataFrame:
+    """(underlying, kind, expiry) -> (date, expiry_type, underlyings).
+
+    Per underlying and calendar month the last expiry is the monthly one;
+    other index expiries in that month are weekly. Stock expiries are monthly.
+    """
+    c = (
+        contracts.unique()
+        .with_columns(
+            _m=pl.col("expiry").dt.month_start(),
+        )
+        .with_columns(_last=pl.col("expiry").max().over("underlying", "_m"))
+    )
+    typed = c.with_columns(
+        expiry_type=pl.when(pl.col("kind") == "stock")
+        .then(pl.lit("stock_monthly"))
+        .when(pl.col("expiry") == pl.col("_last"))
+        .then(pl.lit("index_monthly"))
+        .otherwise(pl.lit("index_weekly"))
+    )
+    return (
+        typed.group_by(pl.col("expiry").alias("date"), "expiry_type")
+        .agg(underlyings=pl.col("underlying").unique().sort().str.join(";"))
+        .sort("date", "expiry_type")
+    )
+
+
+def download_expiries(fetch: Fetcher, cfg: NSEConfig, start: date, end: date) -> pl.DataFrame:
+    """Sample the first trading day of every week: each F&O bhavcopy lists every
+    live contract (futures ~3 months out, weekly options several weeks out), so
+    the union of weekly samples covers every expiry in [start, end]."""
+    parts = []
+    week = start - timedelta(days=start.weekday())
+    while week <= end:
+        for day in (week + timedelta(days=i) for i in range(5)):
+            body = None
+            for url in fo_urls(cfg, day):
+                b = fetch.get(url)
+                if b is not None and b[:2] == b"PK":
+                    body = b
+                    break
+            if body is not None:
+                parts.append(parse_fo_expiries(bhavcopy.unzip_single(body)))
+                break
+        week += timedelta(days=7)
+    if not parts:
+        return pl.DataFrame(
+            schema={"date": pl.Date, "expiry_type": pl.String, "underlyings": pl.String}
+        )
+    out = classify_expiries(pl.concat(parts))
+    return out.filter(pl.col("date").is_between(start, end))
+
+
+# ----------------------------------------------------------- results dates
+
+
+def board_meetings_url(cfg: NSEConfig, start: date, end: date) -> str:
+    return (
+        f"{cfg.www_base}/api/corporate-board-meetings?index=equities"
+        f"&from_date={start:%d-%m-%Y}&to_date={end:%d-%m-%Y}"
+    )
+
+
+def parse_results_meetings(records: list[dict]) -> pl.DataFrame:
+    """Board meetings whose purpose (or description) is financial results ->
+    (symbol, date = meeting date)."""
+    rows = []
+    for r in records:
+        text = f"{r.get('bm_purpose', '')} {r.get('bm_desc', '')}".lower()
+        if "financial result" not in text:
+            continue
+        rows.append(
+            {
+                "symbol": r["bm_symbol"].strip(),
+                "date": datetime.strptime(r["bm_date"].strip(), "%d-%b-%Y").date(),
+            }
+        )
+    return (
+        pl.DataFrame(rows, schema={"symbol": pl.String, "date": pl.Date})
+        .unique()
+        .sort("date", "symbol")
+    )
+
+
+def download_results_dates(
+    fetch: Fetcher,
+    cfg: NSEConfig,
+    start: date,
+    end: date,
+    fresh: Fetcher | None = None,
+    today: date | None = None,
+) -> pl.DataFrame:
+    parts = []
+    for a, b in month_ranges(start, end):
+        recent = today is not None and b >= today - timedelta(days=7)
+        body = (fresh if recent and fresh is not None else fetch).get(board_meetings_url(cfg, a, b))
+        if body:
+            parts.append(parse_results_meetings(json.loads(body)))
+    return (
+        pl.concat(parts).unique().sort("date", "symbol") if parts else (parse_results_meetings([]))
+    )

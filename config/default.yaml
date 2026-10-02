@@ -141,6 +141,6 @@ validation:
   vix_terciles_from: in_sample
   trend_day_threshold: 0.5
   results_window_sessions: 3
-  expiry_types: [index_weekly, stock_monthly]
+  expiry_types: [index_weekly, index_monthly, stock_monthly]
   score_buckets: [65, 75, 85]
   factor_quantiles: 5

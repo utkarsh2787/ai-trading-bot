@@ -57,8 +57,8 @@ store is kept, and its content is part of the run's `data_version` hash.
 | Current Nifty 200 | `niftyindices.com/IndexConstituent/ind_nifty200list.csv` | yes |
 | Nifty 200 changes | niftyindices.com press releases (PDF) | yes, parsed. Unparsed ones go to a review list |
 | Delisted / merged-away stocks, 1-min | not in Kite | **vendor** (TrueData, GDFL, Accelpix, ...) via the local provider |
-| Expiry calendar | NSE F&O bhavcopy history | not yet automated (regime tagging only) |
-| Results dates | NSE/BSE board-meeting announcements | not yet automated (regime tagging only) |
+| Expiry calendar | NSE F&O bhavcopy (legacy `foDDMONYYYYbhav.csv.zip` / UDiFF `BhavCopy_NSE_FO_…`), one trading day sampled per week | yes: `orb ref expiries` |
+| Results dates | `www.nseindia.com/api/corporate-board-meetings` (JSON, by month); purpose or description mentions financial results | yes: `orb ref results` |
 
 All downloads are rate-limited (`data.nse.max_requests_per_sec`) and cached
 under `data/ref/_cache/<source>/`, including 404 markers for holidays, so
@@ -120,8 +120,8 @@ Put these files under `data/ref/manual/`:
 | `special_sessions.csv` | yes | `date,session_type` | muhurat, mock, dr, special, other. These days are excluded. |
 | `calendar_exceptions.csv` | no | `date,reason` | Halts and abnormal sessions; excluded. |
 | `budget_days.csv` | no | `date` | Tagged, not excluded. |
-| `expiries.csv` | no | `date,expiry_type` | `index_weekly`, `stock_monthly` |
-| `results_dates.csv` | no | `symbol,date` | |
+| `expiries.csv` | no | `date,expiry_type,underlyings` | `index_weekly`, `index_monthly`, `stock_monthly`. Per underlying and calendar month, the last expiry is monthly and the others are weekly; stock expiries are always monthly. |
+| `results_dates.csv` | no | `symbol,date` | `date` = board-meeting date. The `results_day` tag is that date (if it's a trading day) plus the next trading day. |
 
 ## Exchange
 
