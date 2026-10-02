@@ -1,7 +1,10 @@
 # Research changelog
 
-Changes made after any real-data result (see `docs/PREREGISTRATION.md`). Only
-bug fixes are allowed under V1; any spec change starts V1.1.
+Changes made after any real-data result, one section per strategy. Only bug
+fixes are allowed; any spec change starts a new version (V1.1, V2.1). A commit
+hash counts as logged only inside its own strategy's section: `orb backtest
+--strategy <v>` refuses a result-relevant commit since that strategy's pin that
+isn't logged under `# V1` / `# V2`.
 
 For each entry, record:
 
@@ -11,6 +14,10 @@ For each entry, record:
 - **Before / after** for every criterion a–e, from the primary book: trades,
   net at 1× and 2×, null p, positive-year share, and net R by score bucket
 - **Runs**: the run ids that were compared
+
+# V1
+
+Pre-registration: `docs/PREREGISTRATION.md`. Pin: `data/_runs/insample_pin.json`.
 
 ## 2026-10-02: report-only additions after the first in-sample run (V1 accepted as FAIL)
 
@@ -41,3 +48,10 @@ For each entry, record:
   - positive years: 0/7
   - net R by score bucket: −0.144 / −0.117 / −0.092
 - **Runs**: `20261002T213846_0822eb04` (report regenerated)
+
+# V2
+
+Pre-registration: `docs/PREREGISTRATION_V2.md`. Pin: `data/_runs/v2/insample_pin.json`
+(set by the first V2 in-sample run).
+
+_No entries yet: no V2 run has been made._
