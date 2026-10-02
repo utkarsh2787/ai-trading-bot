@@ -29,7 +29,13 @@ from orb.data.exclusions import (
     survivorship_header,
     universe_days,
 )
-from orb.data.pipeline import BuildReport, Stores, build_raw_symbol, write_build_record
+from orb.data.pipeline import (
+    BuildReport,
+    Stores,
+    bhav_for,
+    build_raw_symbol,
+    write_build_record,
+)
 from orb.data.provider import DataProvider
 from orb.data.quality import (
     check_daily,
@@ -291,12 +297,17 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
     special = set(ref.special_sessions["date"].to_list())
     indices = set(index_symbols(cfg))
     start, end = cfg.data.minute_history_start, cfg.run.end_date
+    renames = ref.symbol_map.filter(pl.col("change_type") == "rename")
     parts, daily_parts = [], []
     symbols = args.symbols or sorted(set(raw.symbols("minute")) | set(raw.symbols("daily")))
     for symbol in symbols:
         is_index = symbol in indices
         minute = raw.read_minute(symbol, start, end)
-        daily = raw.read_daily(symbol, cfg.data.daily_history_start, end)
+        daily = (  # stocks: official daily bars across renames
+            raw.read_daily(symbol, cfg.data.daily_history_start, end)
+            if is_index
+            else bhav_for(symbol, raw, cfg.data.daily_history_start, end, renames)
+        )
         daily_parts.append(check_daily(daily, ref.corporate_actions, cfg.dq, is_index))
         parts += [
             check_minute(minute, cfg.dq, cfg.session, is_index, special),

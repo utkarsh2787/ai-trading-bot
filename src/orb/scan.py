@@ -17,7 +17,7 @@ import polars as pl
 
 from orb.config import Config
 from orb.context import ContextBuilder
-from orb.data.pipeline import Stores
+from orb.data.pipeline import Stores, bhav_for
 from orb.data.quality import ERROR
 from orb.data.reference import load_reference
 from orb.features import daily_context
@@ -43,7 +43,11 @@ def load_from_disk(cfg: Config) -> tuple[ContextBuilder, pl.DataFrame]:
     if not calendar:
         raise RuntimeError(f"no daily bars for {cfg.data.index.primary}: run download/build-raw")
     symbols = ref.all_symbols()
-    daily = pl.concat([raw.read_daily(s, cfg.data.daily_history_start, end) for s in symbols])
+    # daily history across renames (a stock renamed on D keeps its pre-D bars for ATR)
+    renames = ref.symbol_map.filter(pl.col("change_type") == "rename")
+    daily = pl.concat(
+        [bhav_for(s, raw, cfg.data.daily_history_start, end, renames) for s in symbols]
+    )
 
     def errors(name: str) -> pl.DataFrame:
         p = dq / name
