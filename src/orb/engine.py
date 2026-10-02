@@ -248,6 +248,13 @@ def write_run(res: RunResult, cfg: Config, out_root: str | Path, meta: dict) -> 
     res.sims.write_parquet(d / "sims.parquet")
     res.book.write_parquet(d / "book.parquet")
     res.survivorship_gap().write_csv(d / "survivorship_gap.csv")
+    from orb import labels as lab
+
+    lab.signal_log(res.signals, res.book).write_csv(d / "signal_log.csv")
+    lab.feature_snapshot(res.signals, meta.get("scorer", "rule_v1"), cfg.hash()).write_parquet(
+        d / "features.parquet"
+    )
+    lab.labels(res.signals, res.sims).write_parquet(d / "labels.parquet")
     summary = summarize(res.book)
     meta = {**meta, "run_id": run_id, "survivorship_gap": res.header()}
     (d / "meta.json").write_text(json.dumps(meta, indent=1, sort_keys=True, default=str))

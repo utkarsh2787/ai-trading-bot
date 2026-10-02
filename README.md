@@ -33,6 +33,6 @@ Set `data.provider: local` to import vendor CSV/Parquet files instead. See
 1. Gap list + architecture: done
 2. Config + data pipeline + DQ checks: done
 3. Features + RuleScorer + look-ahead tests: done
-4. Backtest engine: next
-5. Signal log + labels
-6. Reports
+4. Backtest engine: done
+5. Signal log + labels: done
+6. Reports: next
