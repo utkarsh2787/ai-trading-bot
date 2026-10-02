@@ -100,8 +100,9 @@ Put these files under `data/ref/manual/`:
    - the TATAMTRDVR exclusion (2024-08-30);
    - the IDEA/CENTRALBK revocations (2024-09-30).
 
-   With it applied, **all 281 change-boundary dates hold exactly 200
-   companies**. The 201 *securities* during the TATAMTRDVR periods are
+   With it applied, **every trading day (2,220 days, 2017-10-03 to
+   2026-09-30) holds exactly 200 companies**; `orb ref nifty200` writes the daily
+   count to `nifty200_daily_counts.csv` and warns on any other day. The 201 *securities* during the TATAMTRDVR periods are
    expected. Rows marked `needs_review = true` (the OCR transcriptions) still
    need checking against the PDF.
 3. **Delisted and merged-away stocks.** `orb download` lists them as

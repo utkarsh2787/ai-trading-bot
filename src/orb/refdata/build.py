@@ -25,6 +25,7 @@ MERGERS = "mergers.csv"  # old_symbol,new_symbol,effective_date (manual)
 NIFTY_MANUAL = "nifty200_changes_manual.csv"  # effective_date,symbol,change,source
 NIFTY_REVIEW = "nifty200_review.csv"
 NIFTY_SIZES = "nifty200_sizes.csv"
+NIFTY_DAILY = "nifty200_daily_counts.csv"
 NIFTY_PARSED = "nifty200_changes_parsed.csv"
 
 
@@ -168,6 +169,7 @@ class RefBuilder:
             NIFTY_REVIEW,
         )
         self._write(rec.sizes, NIFTY_SIZES)
+        self._daily_counts(rec.membership)
         for p in rec.inconsistencies:
             log.warning("nifty200: %s", p)
         bad = rec.size_violations()
@@ -178,6 +180,38 @@ class RefBuilder:
                 NIFTY_SIZES,
             )
         return rec
+
+    def _daily_counts(self, membership: pl.DataFrame) -> pl.DataFrame | None:
+        """Members on EVERY trading day (bhavcopy dates), not only change dates."""
+        raw = ParquetStore(Path(self.cfg.data.root) / "raw")
+        days = raw.read_daily("RELIANCE", date(1990, 1, 1), date(2100, 1, 1))["date"]
+        if days.len() == 0:
+            log.warning("nifty200: no bhavcopy yet, daily member count skipped")
+            return None
+        start = membership["valid_from"].min()
+        d = pl.DataFrame({"date": days.filter(days >= start)})
+        counts = (
+            d.join(membership, how="cross")
+            .filter(
+                (pl.col("date") >= pl.col("valid_from"))
+                & (pl.col("valid_to").is_null() | (pl.col("date") <= pl.col("valid_to")))
+            )
+            .group_by("date")
+            .agg(
+                securities=pl.len(),
+                companies=(~pl.col("symbol").is_in(list(nifty200.SECOND_CLASS))).sum(),
+            )
+        )
+        counts = d.join(counts, on="date", how="left").fill_null(0).sort("date")
+        self._write(counts, NIFTY_DAILY)
+        bad = counts.filter(pl.col("companies") != 200)
+        if bad.height:
+            log.warning(
+                "nifty200: %d trading days without exactly 200 companies (%s)",
+                bad.height,
+                NIFTY_DAILY,
+            )
+        return counts
 
     def _pdf_text(self, url: str, blob: bytes) -> str:
         """Page-marked text of a press-release PDF, cached next to the PDFs."""
