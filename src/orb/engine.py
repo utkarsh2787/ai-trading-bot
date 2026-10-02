@@ -22,6 +22,7 @@ from pathlib import Path
 
 import polars as pl
 
+from orb import invariants
 from orb.config import Config
 from orb.context import ContextBuilder, DayInputs
 from orb.portfolio import TAKEN, allocate
@@ -129,11 +130,12 @@ class Engine:
 
     def _book_day(self, signals: pl.DataFrame, sims: pl.DataFrame) -> pl.DataFrame:
         parts = []
-        keep = ["date", "symbol", "side", "score", "decision", "reason"]
+        keep = ["date", "symbol", "side", "signal_slot", "score", "decision", "reason"]
         for _, g in sims.group_by("variant", "slippage_mult", maintain_order=True):
             day = g.join(signals.select(keep), on=["date", "symbol"])
-            booked = allocate(day, self.cfg.portfolio)
-            parts.append(self._round_costs(booked))
+            booked = self._round_costs(allocate(day, self.cfg.portfolio))
+            invariants.check(booked, self.cfg)  # fails the run on any violation
+            parts.append(booked)
         return pl.concat(parts, how="diagonal") if parts else pl.DataFrame()
 
     def _round_costs(self, booked: pl.DataFrame) -> pl.DataFrame:

@@ -9,7 +9,7 @@ research default; where a number is involved it lives in `config/`.
 | 2 | Day-level filters | Stock-days failing the OR-width filter are still scanned for their first breakout; it is logged as `FILTERED_OR_WIDTH` with full features and labels. |
 | 3 | Slots full | Stock is done for the day. Only the first breakout ever counts. |
 | 4 | Entry gaps through stop | Skip as `INVALID_ENTRY_GAP` (risk ≤ 0). Label still computed where defined. |
-| 5 | Missing candles | A missing minute means no stop check. A missing entry or 15:10 candle uses the next available open, then the last close, and is flagged. |
+| 5 | Missing candles | A missing minute means no stop check. A missing entry candle uses the next available open, but no later than 14:31 (else `NO_ENTRY_DATA`). A missing 15:10 candle exits at the last close before 15:10 (`EXIT_FALLBACK`), so no position is ever held past 15:10. |
 | 6 | Halts / abnormal sessions | Excluded via `calendar_exceptions.csv`; DQ flags abnormal session timing. |
 | 7 | Wilder ATR seed | 14-bar SMA seed from the fixed `data.daily_history_start`; ATR is only used after `features.min_daily_bars` (100) daily bars. |
 | 8 | RV history | *Superseded by 32.* Missing minutes count as zero volume. |
@@ -73,4 +73,4 @@ runs on numpy arrays extracted from polars. **pydantic v2** validates config.
 | 49 | Manual index changes | `manual/nifty200_changes_manual.csv` (`effective_date, symbol, change, source, needs_review, note`) is applied on every build. Rows transcribed by OCR or inferred are `needs_review = true`. Image-only PDFs are OCR'd (poppler + tesseract) for review, never parsed automatically. |
 | 50 | Merger candidates | `orb ref mergers` pre-fills `manual/mergers.csv` from press-release "amalgamation of X with/into Y" text, mapped to symbols via release tables and confirmed by the target's bhavcopy history ending. All rows are `needs_review = true`. `orb ref symbols` applies only reviewed rows. Share counts aren't in public NSE data, so the share-count-jump signal isn't used. |
 | 51 | Engine | Every signal is simulated for each variant × slippage multiplier, sized as if taken. The portfolio then books per run. In the conservative variant, a stop on the entry candle fills at the stop minus slippage (the open is the entry). Contract-note rounding is computed per day over that run's taken orders. Results are reported with and without it. |
-
+| 52 | Engine invariants | Checked on every (day, variant, slippage) book; any violation fails the run: ≤ 3 open positions and ≤ ₹8,000 deployed at every slot; nothing open after 15:10; no signal after 14:30 and no entry after 14:31; one trade per stock per day; cash never negative (a ledger with entry charges paid at entry); per-trade risk ≤ ₹100; sum of trade net P&L = day equity change to ₹0.01, with and without rounding. |

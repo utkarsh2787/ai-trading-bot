@@ -8,8 +8,9 @@ Rules (spec + decisions 4, 5, 17, 20, 22, 25):
     (default) or from the entry candle itself (conservative variant), up to the
     candle before the hard exit. Long: low <= stop -> fill min(stop, open) -
     slippage; short: high >= stop -> fill max(stop, open) + slippage.
-  * hard exit: open of the 15:10 candle -/+ slippage. Missing -> next open,
-    else the last close (flag EXIT_FALLBACK).
+  * hard exit: open of the 15:10 candle -/+ slippage. Missing -> the last
+    close before 15:10 (flag EXIT_FALLBACK); a position is never held past 15:10.
+  * a delayed entry may not go beyond the candle after the last allowed signal.
   * slippage per fill = multiplier x (ticks x tick + pct x price).
   * MFE / MAE: from the entry candle through the exit candle, inclusive.
 """
@@ -120,7 +121,9 @@ def simulate(
     buy, sell = ("buy", "sell") if long else ("sell", "buy")  # entry order, exit order
     flags = []
 
-    e = _next_open(a, signal_slot + 1, hard)
+    # a delayed entry (missing next candle) may not go past the candle after the
+    # last allowed signal (14:30 -> 14:31)
+    e = _next_open(a, signal_slot + 1, min(hard, slot(s, s.entry_end) + 2))
     if e is None:
         return TradeResult(NO_ENTRY_DATA, **base)
     if e != signal_slot + 1:
@@ -150,12 +153,9 @@ def simulate(
             break
     if exit_slot is None:
         reason = "HARD_EXIT"
-        x = _next_open(a, hard, len(a.open))
-        if x is not None:
-            exit_slot, exit_raw = x, float(a.open[x])
-            if x != hard:
-                flags.append("EXIT_FALLBACK")
-        else:
+        if not np.isnan(a.open[hard]):
+            exit_slot, exit_raw = hard, float(a.open[hard])
+        else:  # no 15:10 candle: last close before it (never hold past 15:10)
             present = np.flatnonzero(~np.isnan(a.close[:hard]))
             exit_slot = int(present[-1])
             exit_raw = float(a.close[exit_slot])

@@ -97,13 +97,18 @@ def test_risk_cap_binds_and_qty_below_one(cfg):
 
 
 def test_missing_entry_and_exit_candles(cfg):
-    a = bars(edits={HARD + 1: {"o": 101.0}})
+    a = bars(edits={HARD - 1: {"c": 101.0}, HARD + 1: {"o": 105.0}})
     for k in (a.open, a.high, a.low, a.close):
         k[30] = np.nan  # no entry candle
         k[HARD] = np.nan  # no 15:10 candle
     r = sim(a, cfg=cfg)
     assert r.entry_slot == 31 and "ENTRY_DELAYED" in r.flags
-    assert r.exit_slot == HARD + 1 and "EXIT_FALLBACK" in r.flags
+    # never held past 15:10: exits at the 15:09 close, not the 15:11 open
+    assert r.exit_slot == HARD - 1 and r.exit_raw == 101.0 and "EXIT_FALLBACK" in r.flags
+    late = bars()
+    for k in (late.open, late.high, late.low, late.close):
+        k[316:330] = np.nan  # signal 14:30 (slot 315), no 14:31 candle
+    assert simulate(late, D, 315, "long", 99.9, 99.0, 100.0, TICK, cfg).status == NO_ENTRY_DATA
     empty = bars()
     for k in (empty.open, empty.high, empty.low, empty.close):
         k[30:] = np.nan
