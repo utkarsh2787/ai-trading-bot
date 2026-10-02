@@ -293,3 +293,27 @@ def excluded_stock_days(issues: pl.DataFrame) -> pl.DataFrame:
         .unique()
         .sort("symbol", "date")
     )
+
+
+VOLUME_BAND = (0.80, 1.02)  # decision 65: clean-day 0.5th pct .. just above 1
+
+
+def check_volume(daily: pl.DataFrame, minute: pl.DataFrame) -> pl.DataFrame:
+    """ERROR when sum(rebuilt 1-min volume) / official daily quantity is outside
+    VOLUME_BAND (after the split/bonus volume fix). Stocks only."""
+    if daily.height == 0 or minute.height == 0:
+        return pl.DataFrame(schema=ISSUE_SCHEMA)
+    agg = minute.group_by("symbol", date=pl.col("ts").dt.date()).agg(mvol=pl.col("volume").sum())
+    j = (
+        daily.join(agg, on=["symbol", "date"])
+        .filter(pl.col("volume") > 0)
+        .with_columns(r=pl.col("mvol") / pl.col("volume"))
+    )
+    lo, hi = VOLUME_BAND
+    return _issues(
+        j.filter((pl.col("r") < lo) | (pl.col("r") > hi)).sort("symbol", "date"),
+        "volume_mismatch",
+        ERROR,
+        pl.col("r"),
+        f"1-min volume / official quantity outside [{lo}, {hi}]",
+    )

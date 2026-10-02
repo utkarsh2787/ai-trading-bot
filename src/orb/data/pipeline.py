@@ -17,7 +17,13 @@ from pathlib import Path
 
 import polars as pl
 
-from orb.data.deadjust import DRIFT_SCHEMA, deadjust_factors, deadjust_minute, factor_drift
+from orb.data.deadjust import (
+    DRIFT_SCHEMA,
+    deadjust_factors,
+    deadjust_minute,
+    factor_drift,
+    fix_unadjusted_volume,
+)
 from orb.data.quality import concat_issues
 from orb.data.store import ParquetStore
 
@@ -73,9 +79,20 @@ class BuildReport:
     minute_rows: int = 0
     issues: list[pl.DataFrame] = field(default_factory=list)
     drift: list[pl.DataFrame] = field(default_factory=list)
+    volume_fixes: list[pl.DataFrame] = field(default_factory=list)
 
     def issue_frame(self) -> pl.DataFrame:
         return concat_issues(self.issues)
+
+    def volume_fix_frame(self) -> pl.DataFrame:
+        parts = [d for d in self.volume_fixes if d.height]
+        return (
+            pl.concat(parts)
+            if parts
+            else pl.DataFrame(
+                schema={"symbol": pl.String, "date": pl.Date, "ratio": pl.Float64, "F": pl.Float64}
+            )
+        )
 
     def drift_frame(self) -> pl.DataFrame:
         parts = [d for d in self.drift if d.height]
@@ -156,6 +173,14 @@ def build_raw_symbol(
             report.issues.append(d_issues)  # drifting days stay in raw but are DQ errors
             report.drift.append(d_runs)
         minute = deadjust_minute(minute, factors)
+        if actions is not None:  # Kite's unadjusted pre-split 1-min volume (decision 65)
+            names = [n for n, _, _ in name_windows(symbol, renames)]
+            minute, fixed = fix_unadjusted_volume(
+                minute, bhav, actions.filter(pl.col("symbol").is_in(names))
+            )
+            report.volume_fixes.append(
+                fixed.with_columns(symbol=pl.lit(symbol)).select("symbol", "date", "ratio", "F")
+            )
         stores.raw.write_minute(minute)
     report.symbols += 1
     report.minute_rows += minute.height

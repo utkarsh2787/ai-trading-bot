@@ -158,3 +158,55 @@ def factor_drift(
         .sort("symbol", "start")
     )
     return issues, runs
+
+
+# Kite left 1-min VOLUME unadjusted before some older splits/bonuses while
+# adjusting prices, so on those days the rebuilt volume is off by the split factor.
+VOLUME_FIX_TOLERANCE = 0.05
+
+
+def later_split_factor(days: pl.DataFrame, actions: pl.DataFrame) -> pl.DataFrame:
+    """(date, F): product of split/bonus price factors with ex_date AFTER each date."""
+    sb = actions.filter(
+        pl.col("action_type").is_in(["split", "bonus"]) & pl.col("price_factor").is_not_null()
+    )
+    if sb.height == 0:
+        return days.select("date").with_columns(F=pl.lit(1.0))
+    rows = []
+    for d in days["date"].to_list():
+        f = 1.0
+        for ex, pf in sb.select("ex_date", "price_factor").iter_rows():
+            if ex > d:
+                f *= pf
+        rows.append((d, f))
+    return pl.DataFrame(rows, schema={"date": pl.Date, "F": pl.Float64}, orient="row")
+
+
+def fix_unadjusted_volume(
+    minute: pl.DataFrame, bhav: pl.DataFrame, actions: pl.DataFrame
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Divide a day's 1-min volumes by F when, BEFORE the symbol's split/bonus, the
+    ratio sum(1-min volume) / bhavcopy quantity is within 5% of the cumulative later
+    factor F. Returns (minute, corrections: date, ratio, F)."""
+    empty = pl.DataFrame(schema={"date": pl.Date, "ratio": pl.Float64, "F": pl.Float64})
+    if minute.height == 0 or bhav.height == 0:
+        return minute, empty
+    day = minute.group_by(pl.col("ts").dt.date().alias("date")).agg(mvol=pl.col("volume").sum())
+    day = day.join(bhav.select("date", "volume"), on="date").filter(pl.col("volume") > 0)
+    day = day.join(later_split_factor(day, actions), on="date").with_columns(
+        ratio=pl.col("mvol") / pl.col("volume")
+    )
+    fix = day.filter(
+        (pl.col("F") < 0.999) & ((pl.col("ratio") / pl.col("F") - 1).abs() < VOLUME_FIX_TOLERANCE)
+    )
+    if fix.height == 0:
+        return minute, empty
+    m = minute.with_columns(date=pl.col("ts").dt.date()).join(
+        fix.select("date", "F"), on="date", how="left"
+    )
+    m = m.with_columns(
+        volume=pl.when(pl.col("F").is_not_null())
+        .then((pl.col("volume") / pl.col("F")).round(0).cast(pl.Int64))
+        .otherwise(pl.col("volume"))
+    ).drop("date", "F")
+    return m, fix.select("date", "ratio", "F").sort("date")

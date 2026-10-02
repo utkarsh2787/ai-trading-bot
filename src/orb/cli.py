@@ -40,6 +40,7 @@ from orb.data.provider import DataProvider
 from orb.data.quality import (
     check_daily,
     check_minute,
+    check_volume,
     concat_issues,
     excluded_stock_days,
     reconcile_daily_minute,
@@ -255,6 +256,7 @@ def cmd_build_raw(cfg: Config, args: argparse.Namespace) -> None:
     out = Path(cfg.data.root) / "_dq"
     out.mkdir(parents=True, exist_ok=True)
     issues.write_parquet(out / "deadjust_issues.parquet")
+    csvio.write_csv(report.volume_fix_frame(), out / "volume_corrections.csv")
     drift = report.drift_frame()
     csvio.write_csv(drift, out / "factor_drift.csv")
     if drift.height:
@@ -292,6 +294,14 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
             "contain commas):\n" + "\n".join(lines)
         )
     log.info("reference CSVs: no ragged rows")
+    vfix = Path(cfg.data.root) / "_dq" / "volume_corrections.csv"
+    if vfix.exists():
+        vf = csvio.read_csv(vfix)
+        log.info(
+            "split/bonus volume fix (build-raw): %d stock-days corrected on %d symbols",
+            vf.height,
+            vf["symbol"].n_unique() if vf.height else 0,
+        )
     ref = load_reference(cfg.reference)
     raw = Stores.raw_only(cfg.data.root)
     special = set(ref.special_sessions["date"].to_list())
@@ -312,6 +322,7 @@ def cmd_dq(cfg: Config, args: argparse.Namespace) -> None:
         parts += [
             check_minute(minute, cfg.dq, cfg.session, is_index, special),
             reconcile_daily_minute(daily, minute, cfg.dq),
+            *([] if is_index else [check_volume(daily, minute)]),
         ]
     out = Path(cfg.data.root) / "_dq"
     out.mkdir(parents=True, exist_ok=True)

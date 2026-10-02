@@ -168,3 +168,28 @@ success criteria a–e remain frozen as above.
 - No config value changed; the config hash is still
   `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
 
+
+### 2026-10-02: split/bonus volume fix and a volume error band (before any real-data run)
+
+RV is 30% of the score, so 1-min volume is validated like prices. On clean
+days, sum(rebuilt 1-min volume) / bhavcopy quantity has a median of 0.996.
+Before some older splits and bonuses, though, Kite adjusted the 1-min prices
+but left the volume unadjusted. Before the split, the ratio equals the split
+factor: EICHERMOT about 0.0997 before its 1:10 split (ex 2020-08-24), and
+CHOLAFIN about 0.2 before its 1:5 split (ex 2019-06-14).
+
+- **Fix (in `build-raw`).** It applies only on days *before* the symbol's
+  split or bonus ex-date (across renames). If the day's ratio is within 5% of
+  the cumulative later factor F (the product of the price factors of every
+  split or bonus with ex-date after that day), that day's 1-min volumes are
+  divided by F. Every corrected day is written to
+  `data/_dq/volume_corrections.csv`, and `orb dq` logs the count.
+- **Error band (in `orb dq`).** A stock-day whose post-fix ratio is outside
+  **[0.80, 1.02]** is an error (`volume_mismatch`) and is excluded. The band is
+  the clean-day 0.5th percentile (0.798) up to just above 1. The total cannot
+  exceed the official quantity except through rounding. The band does not
+  apply to indices, which have no volume.
+- Both constants are in code (`deadjust.VOLUME_FIX_TOLERANCE`,
+  `quality.VOLUME_BAND`), not in the config. No config value changed, and the
+  config hash is still
+  `0822eb04daa9cd48e788a8bd75152743a77a2cf6931e884dfd144e0af62eea0b`.
