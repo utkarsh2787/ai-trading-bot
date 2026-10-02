@@ -6,6 +6,7 @@ date,session_type,proposed_action,detection_reason,in_candidate_list,candidate_l
 2019-10-27,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.1434011727588433,,,,false,candidate confirmed by detection
 2020-02-01,special,tag_budget,weekend,true,Saturday session (Budget),true,0.9732349942784433,,,,false,candidate confirmed by detection
 2020-11-14,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.1494264581499095,,,,false,candidate confirmed by detection
+2021-02-24,other,calendar_exception,early_end;few_candles,false,,true,0.6045568905496924,09:15:00,11:43:00,149.0,false,detected; not in the candidate list
 2021-11-04,muhurat,exclude,low_turnover,true,Muhurat,true,0.1661997776443848,,,,false,candidate confirmed by detection
 2022-10-24,muhurat,exclude,low_turnover,true,Muhurat,true,0.2094093061293587,,,,false,candidate confirmed by detection
 2023-11-12,muhurat,exclude,weekend;low_turnover,true,Muhurat,true,0.21675132089436053,,,,false,candidate confirmed by detection
