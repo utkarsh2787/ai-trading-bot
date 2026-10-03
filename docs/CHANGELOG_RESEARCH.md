@@ -4,7 +4,7 @@ Changes made after any real-data result, one section per strategy. Only bug
 fixes are allowed; any spec change starts a new version (V1.1, V2.1). A commit
 hash counts as logged only inside its own strategy's section: `orb backtest
 --strategy <v>` refuses a result-relevant commit since that strategy's pin that
-isn't logged under `# V1` / `# V2`.
+isn't logged under `# V1` / `# V2` / `# V3`.
 
 For each entry, record:
 
@@ -55,3 +55,10 @@ Pre-registration: `docs/PREREGISTRATION_V2.md`. Pin: `data/_runs/v2/insample_pin
 (set by the first V2 in-sample run).
 
 _No entries yet: no V2 run has been made._
+
+# V3
+
+Pre-registration: `docs/PREREGISTRATION_V3.md`. Pin: `data/_runs/v3/insample_pin.json`
+(set by the first V3 in-sample run).
+
+_No entries yet: no V3 run has been made._

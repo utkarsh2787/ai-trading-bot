@@ -470,7 +470,10 @@ def cmd_scan(cfg: Config, args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="orb")
-    p.add_argument("--config", help="default: config/default.yaml (v1), config/v2.yaml (v2)")
+    p.add_argument(
+        "--config",
+        help="default: config/default.yaml (v1), config/v2.yaml (v2), config/v3.yaml (v3)",
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("ref", help="download/parse reference data from NSE public sources")
     r.add_argument(
@@ -521,15 +524,22 @@ def main(argv: list[str] | None = None) -> None:
     bt.add_argument("--out", default="runs")
     bt.add_argument("--oos", action="store_true", help="run the locked OOS period (once)")
     bt.add_argument("--force-oos-reason", help="rerun OOS anyway; the reason is logged")
-    bt.add_argument("--strategy", choices=["v1", "v2"], default="v1")
+    bt.add_argument("--strategy", choices=["v1", "v2", "v3"], default="v1")
     rp = sub.add_parser("report", help="build the report for a run folder")
     rp.add_argument("run_dir")
-    rp.add_argument("--strategy", choices=["v1", "v2"], default="v1")
+    rp.add_argument("--strategy", choices=["v1", "v2", "v3"], default="v1")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     from orb.data.kite_auth import load_dotenv
 
     load_dotenv(".env")
+    if getattr(args, "strategy", "v1") == "v3":
+        from orb.v3.config import load_config_v3
+        from orb.v3.run import cmd_backtest_v3, cmd_report_v3
+
+        cfg3 = load_config_v3(args.config or "config/v3.yaml")
+        {"backtest": cmd_backtest_v3, "report": cmd_report_v3}[args.cmd](cfg3, args)
+        return
     if getattr(args, "strategy", "v1") == "v2":
         from orb.v2.config import load_config_v2
         from orb.v2.run import cmd_backtest_v2, cmd_report_v2

@@ -88,6 +88,11 @@ class V3Data:
                 self.demergers.add((s, ex))
             elif kind == "rights":
                 self.rights.add((s, ex))
+        self.div_by_symbol = defaultdict(list)
+        for (s, ex), (amt, _) in self.dividends.items():
+            self.div_by_symbol[s].append((ex, amt))
+        for s in self.div_by_symbol:
+            self.div_by_symbol[s].sort()
         for s in self.splits:
             self.splits[s].sort()
         self.splits = dict(self.splits)

@@ -10,8 +10,9 @@ from datetime import date
 
 import polars as pl
 
+from orb.features import slot
 from orb.v3.data import V3Data
-from orb.v3.fills import Exec, buy_exec, sell_exec, value_price
+from orb.v3.fills import Exec, _first_present, buy_exec, sell_exec, value_price
 from orb.v3.signal import rebalance_days, scan_rebalance
 
 
@@ -30,6 +31,7 @@ class Market:
         self._buy: dict[tuple, Exec] = {}
         self._sell: dict[tuple, Exec] = {}
         self._value: dict[tuple, tuple] = {}
+        self._open: dict[tuple, float | None] = {}
 
     def rebalances(self, start: date, end: date) -> list[date]:
         return [d for d in self.all_rebalances if start <= d <= end]
@@ -73,3 +75,32 @@ class Market:
                 self.data.session(s, d), prev[1] if prev else None, self.cfg
             )
         return self._value[k]
+
+    def open_raw(self, s: str, d: date) -> float | None:
+        """Label price: the 15:00 open (else the first candle to 15:05), no guard;
+        the official close when the stock has no candle in that window."""
+        k = (s, d)
+        if k not in self._open:
+            a = self.data.session(s, d)
+            sl = self.cfg.session
+            i = _first_present(a, slot(sl, sl.exec_candle), slot(sl, sl.exec_last)) if a else None
+            self._open[k] = float(a.open[i]) if i is not None else self.data.close(s, d)
+        return self._open[k]
+
+    def precompute(self, days: list[date], forced_day: date | None = None) -> None:
+        """Scan every rebalance day and memoise every member's fills, valuation and
+        label price; 1-min sessions are evicted as the scan moves on, so memory
+        holds about one month. Later misses (carried / deferred exits, stocks that
+        left the index) are loaded lazily."""
+        for d in days:
+            df = self.scan(d)
+            for s in df["symbol"].to_list():
+                if self.data.session(s, d) is None:
+                    continue
+                self.buy(s, d)
+                self.sell(s, d)
+                self.value(s, d)
+                self.open_raw(s, d)
+                if d == forced_day:
+                    self.sell(s, d, guard=False)
+            self.data.evict_before(d)

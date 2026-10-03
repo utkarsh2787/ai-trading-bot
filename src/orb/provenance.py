@@ -73,6 +73,25 @@ STRATEGIES = {
         ),
         "docs/PREREGISTRATION_V2.md",
     ),
+    "v3": Strategy(
+        "v3",
+        "V3",
+        "_runs/v3/insample_pin.json",
+        (
+            "src/orb/v3/",
+            "src/orb/v2/trade.py",
+            "src/orb/v2/config.py",
+            "src/orb/refdata/fno.py",
+            "src/orb/context.py",
+            "src/orb/features.py",
+            "src/orb/sim/ticks.py",
+            "src/orb/data/pipeline.py",
+            "config/v3.yaml",
+            "config/tick_sizes.yaml",
+            "config/costs_cnc.yaml",
+        ),
+        "docs/PREREGISTRATION_V3.md",
+    ),
 }
 
 
