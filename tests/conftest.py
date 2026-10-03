@@ -17,3 +17,10 @@ def cfg_v2():
     from orb.v2.config import load_config_v2
 
     return load_config_v2(ROOT / "config" / "v2.yaml")
+
+
+@pytest.fixture(scope="session")
+def cfg_v3():
+    from orb.v3.config import load_config_v3
+
+    return load_config_v3(ROOT / "config" / "v3.yaml")
