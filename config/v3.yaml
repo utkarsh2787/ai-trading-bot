@@ -1,0 +1,151 @@
+# V3 research defaults: weekly short-term reversal, long-only delivery (CNC).
+# Fixed values - NOT to be optimised. Pre-registered in docs/PREREGISTRATION_V3.md
+# (the config hash there covers this file plus the tick and CNC cost tables).
+
+strategy: v3
+
+run:
+  name: reversal_v3
+  start_date: 2018-01-01        # same in-sample start as V1 / V2
+  end_date: 2026-09-30
+  oos_start: 2024-10-01         # locked behind --oos; never run so far
+  seed: 20180101
+
+# shared with V1 / V2 (same raw store, reference files and DQ exclusions in data/_dq)
+data:
+  root: data
+  provider: kite                # kite | local
+  daily_history_start: 2016-01-01   # fixed Wilder-ATR seed origin (decision 7)
+  minute_history_start: 2017-10-01  # >= 20 sessions of RV warm-up before run.start_date
+  deadjust_tolerance: 0.005         # Kite vs bhavcopy OHLC ratio dispersion within a day
+  deadjust_drift_tolerance: 0.001   # factor must be constant between corporate actions
+  index:
+    primary: NIFTY 200
+    fallback: NIFTY 50
+    vix: INDIA VIX
+  kite:
+    api_key_env: KITE_API_KEY
+    access_token_env: KITE_ACCESS_TOKEN
+    exchange: NSE
+    index_exchange: NSE
+    max_requests_per_sec: 3
+    minute_chunk_days: 60
+    day_chunk_days: 2000
+    max_retries: 5
+    backoff_base_sec: 1.0
+    price_basis: adjusted       # fixed: Kite has no unadjusted series
+  local:
+    root: vendor
+    minute_glob: "minute/{symbol}.*"
+    daily_glob: "daily/{symbol}.*"
+    timezone: Asia/Kolkata
+    price_basis: raw            # raw | adjusted (adjusted -> de-adjusted via bhavcopy)
+    columns:                    # vendor column -> canonical column
+      timestamp: ts
+      date: date
+      open: open
+      high: high
+      low: low
+      close: close
+      volume: volume
+  nse:
+    archives_base: https://nsearchives.nseindia.com
+    www_base: https://www.nseindia.com
+    niftyindices_base: https://www.niftyindices.com
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+    max_requests_per_sec: 1
+    timeout_sec: 30
+    max_retries: 3
+    bhavcopy_udiff_from: 2024-07-08
+    series: [EQ, BE]
+
+reference:
+  root: data/ref
+  membership: nifty200_membership.csv
+  ban_list: fo_ban.csv
+  corporate_actions: corporate_actions.csv
+  special_sessions: special_sessions.csv
+  calendar_exceptions: calendar_exceptions.csv
+  budget_days: budget_days.csv
+  symbol_map: symbol_map.csv
+  expiries: expiries.csv
+  results_dates: results_dates.csv
+  excluding_action_types: [split, bonus, rights, demerger, merger]
+
+session:
+  first_candle: "09:15"
+  last_candle: "15:29"
+  signal_candle: "14:59"        # P_now = close of the 14:59 candle (closes 15:00:00)
+  signal_fallback_from: "14:55" # 14:59 missing -> last close 14:55..14:58, else NO_PRICE
+  exec_candle: "15:00"          # rebalance trades at its open + slippage
+  exec_last: "15:05"            # 15:00 missing -> first candle 15:01..15:05
+  carry_candle: "09:20"         # EXIT_CARRIED: next trading day's 09:20 open
+
+universe:
+  warmup_sessions: 6            # >= 6 prior daily bars (price history only)
+  fno_ban_excludes: false       # the F&O ban restricts derivatives, not delivery
+  corp_action_days_block_buys: true   # gap #2
+  dq_defers_exits: true               # gap #3 (EXIT_DEFERRED)
+
+schedule:
+  rebalance: last_trading_day_of_week
+
+signal:
+  lookback: previous_rebalance_close  # r_week = P_now / P_prev - 1
+  rank: r_week_ascending        # most negative first
+  tie_break: symbol_asc
+  target_size: 2
+
+sizing:
+  starting_capital: 10000
+  slot_fraction: 0.90           # Slot_w = 0.90 x equity_w / 2 (10% buffer for charges)
+  slots: 2
+  ruin_equity: 5000             # no new buys once equity_w < Rs 5,000
+  equity_basis: net_rounded
+  same_day_sell_proceeds: true  # known limit (T+1 settlement ignored)
+  leverage: false
+
+execution:
+  books:
+    primary:    {ticks: 1, pct: 0.0, round_to_tick: false}     # 1 tick per fill
+    primary_2x: {ticks: 2, pct: 0.0, round_to_tick: false}     # reported only
+    v1_model:   {ticks: 1, pct: 0.0002, round_to_tick: true}   # stress (criterion b)
+  primary_book: primary
+  stress_book: v1_model
+  exchange: NSE
+  round_stt_stamp_to_rupee: true  # per contract note (per day); reports show both
+  tick_table: tick_sizes.yaml
+  cost_table: costs_cnc.yaml      # Zerodha CNC profile, all fields unverified
+
+circuit_guard:                  # as V2
+  enabled: true
+  apply_to: non_fno
+  fno_membership: data/ref/fno_stocks.csv
+  fno_rule: both_bracketing_samples
+  ban_list_implies_fno: true
+
+corporate_actions:
+  split_bonus: qty_floor_drop_fraction   # qty = floor(qty / price_factor)
+  dividends: credit_on_ex_date           # qty x Rs per share, pre-tax
+  demerger: exit_previous_trading_day    # sell at the 15:00 open the day before ex-date
+  rights: hold_through                   # never taken up
+  delisting: exit_last_traded_close      # mergers too (cash-out at the last close)
+
+validation:
+  null_draws: 2000
+  vix_terciles_from: expanding
+  vix_min_history: 250
+  trend_day_threshold: 0.5
+  results_window_sessions: 3
+  expiry_types: [index_weekly, index_monthly, stock_monthly]
+  label_quantiles: 5            # criterion e: r_week quintiles within each week
+  post_start: 2020-01-01
+  dp_sensitivity: [0.0, 2.0]    # DP = Rs 0 and DP doubled
+
+prereg:                         # docs/PREREGISTRATION_V3.md
+  version: V3
+  strategies_tested: 3          # V1, V2, V3 -> Bonferroni 0.05 / 3
+  min_round_trips: 300          # a.
+  null_p_max: 0.016666666666666666  # c. = 0.05 / 3 (spec: 0.0167)
+  min_years_beating_null_share: 0.60  # d. ... and the ruin stop is never hit
+  ruin_never_hit: true
