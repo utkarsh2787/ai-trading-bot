@@ -1,7 +1,7 @@
-# Zerodha delivery (CNC) charges on NSE equity, for V3. Every field UNVERIFIED:
+# Zerodha delivery (CNC) charges on NSE equity, for V3. Every field except the DP charge UNVERIFIED:
 # check against https://zerodha.com/charges before any decision is based on it.
 # GST applies to brokerage + exchange txn + SEBI fee; the DP charge already
-# includes GST (flat per stock per sell day).
+# includes GST (flat per stock per sell day). DP verified 2026-10-03 (pre-run amendment).
 exchange: NSE
 gst_on: [brokerage, exchange_txn, sebi_fee]
 verification:
@@ -13,7 +13,7 @@ verification:
   stamp_buy_pct:     {verified: false, source: "spec V3: 0.015% on buy"}
   sebi_per_crore:    {verified: false, source: "spec V3: Rs 10 per crore"}
   gst_pct:           {verified: false, source: "spec V3: 18%"}
-  dp_per_scrip_sell_day: {verified: false, source: "spec V3: Rs 15.93 incl. GST, to be checked"}
+  dp_per_scrip_sell_day: {verified: true, source: "zerodha.com/charges (current rate): Rs 3.50 CDSL + Rs 9.50 Zerodha + Rs 2.34 GST = Rs 15.34; constant over 2018-2024 (known limit)"}
 schedules:
   - effective_from: 2000-01-01
     brokerage_pct: 0.0
@@ -24,4 +24,4 @@ schedules:
     stamp_buy_pct: 0.00015
     sebi_per_crore: 10.0
     gst_pct: 0.18
-    dp_per_scrip_sell_day: 15.93
+    dp_per_scrip_sell_day: 15.34

@@ -41,8 +41,9 @@ def test_v3_values():
         0.001,
         0.00015,
     )
-    assert s.dp_per_scrip_sell_day == 15.93
-    assert len(c.costs.unverified) == len(c.costs.verification)  # every field unverified
+    assert s.dp_per_scrip_sell_day == 15.34  # pre-run amendment 2026-10-03, verified
+    assert c.costs.verification["dp_per_scrip_sell_day"].verified
+    assert len(c.costs.unverified) == len(c.costs.verification) - 1  # every other field unverified
     v1 = load_config(ROOT / "config" / "default.yaml")
     assert c.data == v1.data and c.reference == v1.reference and c.ticks == v1.ticks
     assert c.costs.schedules[0].exchange_txn_pct == v1.costs.schedules[0].exchange_txn_pct

@@ -57,7 +57,7 @@ def test_keep_sell_buy_and_sizing(cfg_v3):
     assert res.counts["ROUND_TRIPS"] == 3
     # flat prices: the P&L is just slippage + costs (DP included)
     assert b["gross_pnl"] == pytest.approx(-44 * 0.02)
-    assert b["dp"] == 15.93 and b["net_pnl_rounded"] < b["gross_pnl"] - 15.93
+    assert b["dp"] == 15.34 and b["net_pnl_rounded"] < b["gross_pnl"] - 15.34
     assert res.final_equity == pytest.approx(10_000 + sum(t["net_pnl_rounded"] for t in res.trades))
 
 

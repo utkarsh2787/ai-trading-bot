@@ -21,7 +21,8 @@ Fri 06-21: last rebalance of the run -> A sold, 110.00 - 0.01 = 109.99 x 44 (FOR
 
 CNC charges per order (value V): brokerage 0; STT 0.1% V (buy and sell); exchange
 0.00297% V; stamp 0.015% V (buy); SEBI Rs 10/crore; GST 18% x (exchange + SEBI);
-DP Rs 15.93 per stock per sell day. Contract note per day: STT and stamp totals
+DP Rs 15.34 per stock per sell day (Rs 3.50 CDSL + 9.50 Zerodha + 2.34 GST).
+Contract note per day: STT and stamp totals
 rounded half-up to the rupee, allocated pro rata:
   06-07: STT 4.40022 + 4.35029 = 8.75051 -> 9; stamp 0.660033 + 0.6525435 = 1.3125765 -> 1
   06-14: STT 4.49471 + 4.68039 = 9.1751 -> 9;   stamp 0.7020585 -> 1
@@ -82,7 +83,7 @@ ORDERS = {  # value, stt, exchange_txn, stamp, sebi_fee, gst, cost rounded (incl
         0.0,
         0.00449471,
         0.02483777,
-        20.50175715,
+        19.91175715,
     ),
     ("C", "buy"): (
         39,
@@ -104,7 +105,7 @@ ORDERS = {  # value, stt, exchange_txn, stamp, sebi_fee, gst, cost rounded (incl
         0.0,
         0.00487461,
         0.02693709,
-        21.10658762,
+        20.51658762,
     ),
     ("A", "sell"): (
         44,
@@ -115,20 +116,20 @@ ORDERS = {  # value, stt, exchange_txn, stamp, sebi_fee, gst, cost rounded (incl
         0.0,
         0.00483956,
         0.02674341,
-        21.1053179,
+        20.5153179,
     ),
 }
 TRADES = {  # gross, dividends, net rounded, net unrounded, slippage, exit cause, exit date
-    "A": (439.34, 0.0, 413.04674996, 413.17546673, 0.66, "FORCED_END", F3),
-    "B": (144.42, 58.0, 176.78917901, 176.67203753, 0.58, "REBALANCE", F2),
-    "C": (194.22, 0.0, 167.35279235, 167.68680207, 0.78, "EXIT_CORP_ACTION", D18),
+    "A": (439.34, 0.0, 413.63674996, 413.76546673, 0.66, "FORCED_END", F3),
+    "B": (144.42, 58.0, 177.37917901, 177.26203753, 0.58, "REBALANCE", F2),
+    "C": (194.22, 0.0, 167.94279235, 168.27680207, 0.78, "EXIT_CORP_ACTION", D18),
 }
 CASH = {
     F1: 1239.17300402,
     date(2024, 6, 12): 1297.17300402,
-    F2: 1085.23062685,
-    D18: 5938.73403923,
-    F3: 10757.18872133,
+    F2: 1085.82062685,
+    D18: 5939.91403923,
+    F3: 10758.95872133,
 }
 
 
@@ -168,7 +169,7 @@ def test_orders_and_every_cost_line(golden, cfg_v3):
         ):
             assert ch[name] == pytest.approx(want, abs=1e-7), (k, name)
             assert o["charges"][name] == pytest.approx(want, abs=1e-7), (k, name)
-        assert o["dp"] == (15.93 if k[1] == "sell" else 0.0)
+        assert o["dp"] == (15.34 if k[1] == "sell" else 0.0)
         assert o["cost_r"] == pytest.approx(cost_r, abs=P), k
 
 
@@ -196,5 +197,5 @@ def test_cash_path(golden):
     cash = {r["date"]: r["cash"] for r in golden.daily}
     for d, want in CASH.items():
         assert cash[d] == pytest.approx(want, abs=P), d
-    assert golden.final_equity == pytest.approx(10757.18872133, abs=P)
+    assert golden.final_equity == pytest.approx(10758.95872133, abs=P)
     assert golden.final_equity == pytest.approx(10_000 + sum(TRADES[s][2] for s in TRADES), abs=P)

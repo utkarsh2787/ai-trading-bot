@@ -121,8 +121,8 @@ def test_report_layout(engine_run, cfg_v3):
     assert sd["scenario"].to_list()[:3] == ["all trades (primary)", "DP x 0", "DP x 2"]
     all_, dp0, dp2 = sd["net_pnl_rounded"].to_list()[:3]
     n = sd["round_trips"][0]
-    assert dp0 == pytest.approx(all_ + 15.93 * n, abs=0.02) and dp2 == pytest.approx(
-        all_ - 15.93 * n, abs=0.02
+    assert dp0 == pytest.approx(all_ + 15.34 * n, abs=0.02) and dp2 == pytest.approx(
+        all_ - 15.34 * n, abs=0.02
     )
 
 

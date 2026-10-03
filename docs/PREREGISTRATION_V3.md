@@ -12,7 +12,7 @@ change.
 | Spec version | **V3** (the V3 spec of 2026-10-02/03, with the gap resolutions below) |
 | Strategies tested so far | **3** (V1, V2, V3). Bonferroni: criterion c uses p < 0.05 / 3 = **0.0167** (`null_p_max` = 0.0166…; with 2,000 draws, p moves in steps of 0.0005, so the two are identical) |
 | Code commit | **pinned automatically by the first V3 in-sample run**, in its `meta.json` and in `data/_runs/v3/insample_pin.json` |
-| Config hash | `0c918ba07bab85c7db276a7d769ac8194336156a73cb58b1d1201e0b94e1b292` (`config/v3.yaml` + the tick table + the CNC cost table `config/costs_cnc.yaml`, including the `prereg` thresholds) |
+| Config hash | `10539881021f7f26f8b25568ed71930f26e21984bfe2310ff01014d2caed5a14` (`config/v3.yaml` + the tick table + the CNC cost table `config/costs_cnc.yaml`, including the `prereg` thresholds) |
 | In-sample period | 2018-01-01 to 2024-09-30 |
 | OOS start | 2024-10-01 (never run so far, by any strategy) |
 | Data | The frozen Kite snapshot `20261002T143725`, the raw store and reference files, the DQ exclusions in `data/_dq`, and `data/ref/fno_stocks.csv`. No new downloads. Each run records its data version. |
@@ -134,7 +134,7 @@ Every slippage book has its own ledger and equity path.
 | `primary_2x` | 2 ticks, no rounding | reported only |
 | `v1_model` | 1 tick + 0.02% of price, rounded against the trade to the tick | **stress book**; criterion b |
 
-## Costs (Zerodha CNC; `config/costs_cnc.yaml`, every field unverified)
+## Costs (Zerodha CNC; `config/costs_cnc.yaml`; every field unverified except the DP charge)
 
 | Charge | Rate |
 |---|---|
@@ -144,7 +144,7 @@ Every slippage book has its own ledger and equity path.
 | Exchange txn | 0.00297%, the NSE equity rate used by V1. One flat rate for the whole period (**known limit**, gap #18) |
 | SEBI fee | ₹10 per crore |
 | GST | 18% on (exchange txn + SEBI fee) |
-| DP charge | ₹15.93 per stock per sell day, GST included |
+| DP charge | ₹15.34 per stock per sell day (₹3.50 CDSL + ₹9.50 Zerodha + ₹2.34 GST), verified against zerodha.com/charges (current rate). Constant over 2018–2024 (**known limit**; amended 2026-10-03, see Amendments) |
 
 STT and stamp duty are rounded to the rupee per day (contract note), as in
 V1/V2. Results are reported with and without rounding.
@@ -247,6 +247,9 @@ Subsets remove trades from the existing book. The ledger is **not** re-run.
 8. **Circuit detection** is the V2 heuristic on 1-min bars, with F&O
    membership from weekly samples.
 9. **Taxes** are ignored: results are pre-tax.
+10. **Constant DP charge.** ₹15.34 is today's rate, applied across 2018–2024.
+    Historical rates differed slightly; the DP sensitivity diagnostic (₹0 and
+    2×) covers the range.
 
 ## Changes after results
 
@@ -284,3 +287,36 @@ The same rules as V1/V2:
 | 20 | Null: random selection with the same rules, its own equity path per draw, 2,000 draws, final equity, one-sided |
 | 21 | `FORCED_END` at the last rebalance on or before 2024-09-30, paying all costs |
 | 22 | Bonferroni over 3 strategies: p < 0.0167 |
+
+## Pre-run decisions (approved 2026-10-03)
+
+These choices were made while building V3, beyond the 22 gap resolutions. They
+are rules for this run, and some are also known limits.
+
+| # | Decision |
+|---|---|
+| D1 | **Ruin is permanent:** once `equity_w < ₹5,000`, no new buys for the rest of the run, even if equity recovers |
+| D2 | **`FORCED_END` ignores the circuit guard and the DQ deferral:** everything is sold at the 15:00 open (or the official close if there is no candle), so no position runs past the in-sample end |
+| D3 | A target stock with a demerger ex-date on the next trading day is **not bought** (`CORP_ACTION_NEXT_DAY`, counted); the demerger rule would sell it the same day |
+| D4 | **Delisting exits** at the last official close pay slippage and the normal sell costs (STT, DP and the rest) |
+| D5 | A held stock with **no trading at all** on its sell day (no official bar) is carried to the next trading day |
+| D6 | **Criterion e quintiles** are formed within each week; "top" means the highest `r_week` |
+| D7 | The **last in-sample week has no label**: computing it would need OOS prices |
+| D8 | The **survivorship-gap line** is measured on rebalance days, and the report says so |
+
+## Amendments (all made before any V3 run)
+
+### 2026-10-03: DP charge ₹15.34, verified
+
+- **Before:** ₹15.93 per stock per sell day, unverified.
+- **Now:** ₹15.34 = ₹3.50 CDSL + ₹9.50 Zerodha + ₹2.34 GST, from
+  zerodha.com/charges at the current rate, marked verified in
+  `config/costs_cnc.yaml`.
+- **Known limit:** the charge is constant across 2018–2024, although
+  historical rates differed slightly. The DP sensitivity diagnostic (₹0 and 2×)
+  covers this.
+- The golden-week expectations were updated: each sell costs ₹0.59 less.
+- **Config hash** changed from `0c918ba0…` to
+  `10539881021f7f26f8b25568ed71930f26e21984bfe2310ff01014d2caed5a14`, updated in
+  the Identity table above.
+
